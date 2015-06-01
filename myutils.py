@@ -12,7 +12,7 @@ Record = namedtuple('Record', 'trip_id, origin_call, timestamp,coordinates')
 
 def fastDistance(p1, p2):
     return (p1[0]-p2[0])**2 + (p1[1]-p2[1])**2
-    
+
 def HaversineDistance(p1, p2):
     #returns the distance in km
     REarth = 6371
@@ -27,8 +27,8 @@ def HaversineDistance(p1, p2):
     d = REarth*d
     return d
 
-def load_data(filename='/home/greg/host/taxi/train.csv', max_entries=100):
-    
+def load_data(filename='../data/train.csv', max_entries=100):
+
     data=[]
     first = True
     with open(filename, 'rb') as f:
@@ -54,6 +54,8 @@ def load_data(filename='/home/greg/host/taxi/train.csv', max_entries=100):
                                     timestamp=timestamp, coordinates=polyline)
                         data.append(record)
                         n_entries = n_entries + 1
+                        if n_entries % (max_entries/20) == 0:
+                            print "%d/%d" % (n_entries,max_entries)
             if n_entries > max_entries:
                 break
     return data
@@ -64,7 +66,7 @@ def make_test_data(input_data, n_entries=100):
     data_len = len(input_data)
     for i in xrange(n_entries):
         idx = random.randint(0, data_len - 1)
-        input_record = input_data[idx]   
+        input_record = input_data[idx]
         ground_truth.append(input_record.coordinates[-1])
         l = random.randint(1, len(input_record.coordinates))
         test_record = Record(trip_id=input_record.trip_id,
