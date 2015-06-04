@@ -167,7 +167,7 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
     first = True
     ids=[]
     if total_records>0:
-        step = total_records/max_entries
+        step = int(total_records/max_entries)
     else:
         step = 1
     with open(filename, 'rb') as f:
@@ -225,8 +225,6 @@ def make_test_data_sparse(data, target, n_entries=100, n_features=-1):
                 if data[idx,j]==0:
                     break
                 data_record_len = data_record_len + 1
-            if data_record_len==2:
-                print data[idx]
             if n_features==-1:
                 if data_record_len>(METADATA_LEN+1):
                     l = random.randint(METADATA_LEN+1, data_record_len)
