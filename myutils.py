@@ -32,6 +32,21 @@ def HaversineDistance(p1, p2):
     d = REarth*d
     return d
 
+def get_n_coordinates(entry):
+    max_features=entry.shape[0]
+    len = 0
+    # find length of this record
+    for i in xrange(METADATA_LEN,max_features):
+        if entry[i]==0:
+            break
+        len = len + 1
+    # make sure this is an even number
+    assert(len%2 == 0)
+    return len/2
+
+def get_n_features(n_coordinates):
+    return 2*n_coordinates + METADATA_LEN
+
 def load_data(filename='../data/train.csv', max_entries=100):
     data=[]
     first = True
@@ -109,13 +124,14 @@ def load_data_sparse(filename='../data/train.csv', max_entries=100, max_features
                 break
     return data.tocsr(),target,ids
 
-def load_data_dense(filename='../data/train.csv', max_entries=100, max_features=20, total_records=-1):
+def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinates=20, skip_records = 0, total_records=-1):
+    max_features = get_n_features(max_coordinates)
     data=numpy.empty([max_entries,max_features])
     target=numpy.empty([max_entries,2])
     first = True
     ids=[]
     if total_records>0:
-        step = total_records/max_entries
+        step = int((total_records-skip_records)/max_entries)
     else:
         step = 1
     with open(filename, 'rb') as f:
@@ -133,7 +149,7 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_features=
                 first = False
             else:
                 n_parsed = n_parsed + 1
-                if n_parsed % step != 0:
+                if (n_parsed % step != 0) or (n_parsed < skip_records):
                     continue
                 if row[missing_data_idx] == "False":
                     polyline = eval(row[polyline_idx])
@@ -149,9 +165,10 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_features=
                         metadata=[time,weekday]
                         assert METADATA_LEN == len(metadata)
                         data[n_entries,:METADATA_LEN]=metadata
-                        # save coordinates (up to max_features-metadata) into feature matrix
-                        n_coordinates = min(max_features-METADATA_LEN,polyline_len)
-                        data[n_entries,METADATA_LEN:METADATA_LEN+n_coordinates] = numpy.ravel(polyline)[:n_coordinates]
+                        # save coordinates (up to max_coordinates) into feature matrix
+                        n_coordinates = min(max_coordinates,polyline_len)
+                        n_features = get_n_features(n_coordinates)
+                        data[n_entries,METADATA_LEN:n_features] = numpy.ravel(polyline[:n_coordinates])
                         # save end destination into target matrix
                         target[n_entries]=polyline[-1]
                         n_entries = n_entries + 1
@@ -159,10 +176,11 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_features=
                             print "%d/%d" % (n_entries,max_entries)
             if n_entries >= max_entries:
                 break
-    return data,target,ids
+    return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
 def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1):
-    data=numpy.empty([max_entries,2*n_coordinates + METADATA_LEN])
+    n_features = get_n_features(n_coordinates)
+    data=numpy.empty([max_entries,n_features])
     target=numpy.empty([max_entries,2])
     first = True
     ids=[]
@@ -201,7 +219,7 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                         metadata=[time,weekday]
                         assert METADATA_LEN == len(metadata)
                         data[n_entries,:METADATA_LEN]=metadata
-                        data[n_entries,METADATA_LEN:METADATA_LEN+2*n_coordinates] = numpy.ravel(polyline)[:2*n_coordinates]
+                        data[n_entries,METADATA_LEN:n_features] = numpy.ravel(polyline[n_coordinates])
                         # save end destination into target matrix
                         target[n_entries]=polyline[-1]
                         n_entries = n_entries + 1
@@ -209,34 +227,30 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                             print "%d/%d" % (n_entries,max_entries)
             if n_entries >= max_entries:
                 break
-    return data,target,ids
+    print "loaded %d entries out of %d max" % (n_entries, max_entries)
+    return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
-def make_test_data_sparse(data, target, n_entries=100, n_features=-1):
+def make_test_data_dense(data, target, n_entries=100, required_n_coordinates=-1):
     ground_truth=numpy.empty([n_entries,2])
     data_len = data.shape[0]
     max_features = data.shape[1]
-    test_data = scipy.sparse.lil_matrix((n_entries, max_features))
+    test_data = numpy.zeros([n_entries, max_features])
     for i in xrange(n_entries):
         while True:
+            # pick random index within data
             idx = random.randint(0, data_len - 1)
-            data_record_len = METADATA_LEN
-            # find length of this record
-            for j in xrange(METADATA_LEN,max_features):
-                if data[idx,j]==0:
-                    break
-                data_record_len = data_record_len + 1
-            if n_features==-1:
-                if data_record_len>(METADATA_LEN+1):
-                    l = random.randint(METADATA_LEN+1, data_record_len)
-                else:
-                    l = METADATA_LEN+1
+            n_coordinates = get_n_coordinates(data[idx])
+            if required_n_coordinates==-1:
+                # pick random number of coordinates
+                l = random.randint(1, n_coordinates)
             else:
-                l = n_features
-            if data_record_len>=l:
-                test_data[i,0:l] = data[idx,0:l]
+                l = required_n_coordinates
+            if n_coordinates>=l:
+                n_features = get_n_features(l)
+                test_data[i,0:n_features] = data[idx,0:n_features]
                 ground_truth[i] = target[idx]
                 break
-    return test_data.tocsr(),ground_truth
+    return test_data,ground_truth
 
 def make_test_data(input_data, n_entries=100):
     test_data = []

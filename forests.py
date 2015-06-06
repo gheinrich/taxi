@@ -2,15 +2,24 @@ import myutils
 import time
 import sklearn
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.cross_validation import train_test_split
 import affinity
 import multiprocessing
 from optparse import OptionParser
 from sklearn.externals import joblib
+import numpy
 import os
 
 MAX_DIST = 1e6
 
 MAKE_TEST_SET = True
+
+def get_model_id(model_sizes, n_coordinates):
+    model = 0
+    for j in xrange(len(model_sizes)):
+        if model_sizes[j]<=n_coordinates:
+            model = model_sizes[j]
+    return model
 
 def train(options):
     n_coordinates = options.n_coordinates
@@ -25,9 +34,9 @@ def train(options):
 
     print "splitting data into training/test sets..."
     n_test_entries = 320
-    data_train,data_test,target_train,target_test = sklearn.cross_validation.train_test_split(data,
-                                                                                              target,
-                                                                                              test_size=n_test_entries)
+    data_train,data_test,target_train,target_test = train_test_split(data,
+                                                                     target,
+                                                                     test_size=n_test_entries)
 
     print "building model with %d coordinates ..." % n_coordinates
     model = sklearn.ensemble.RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1)
@@ -48,6 +57,90 @@ def train(options):
         p2 = predictions[i]
         dist = dist + myutils.HaversineDistance( p1, p2)
     print "Mean haversine distance: %f" % (dist / n_test_entries)
+
+def predict(options):
+    directory = options.dir
+
+    model_sizes = [1,2,5,8,10,12,14,17,20,23,26,30,32,34,36,38,40,43,47,50,60,70,
+                   80,90,100,110,120,130,160,220]
+    #model_sizes = [1,47,50]
+
+    print "loading test data..."
+    if MAKE_TEST_SET:
+        n_test_entries = 320
+        n_entries = 2*n_test_entries
+        data,target,ids = myutils.load_data_dense(max_entries = n_entries,
+                                                  max_coordinates=200,
+                                                  skip_records=1e6,
+                                                  total_records=1.5*1e6)
+        data_test,ground_truth = myutils.make_test_data_dense(data,target, n_entries=n_test_entries)
+        ids_test=['dummy'] * n_test_entries
+    else:
+        data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
+                                                  max_entries = 320,
+                                                  max_coordinates=400)
+
+    n_test_entries = data_test.shape[0]
+
+    print "predicting %d entries..." % n_test_entries
+    n_predicted = 0
+    total_dist = 0
+    predictions = numpy.zeros([n_test_entries,2])
+    for model_size in model_sizes:
+        model_name = "%s/model_%d_%d.pkl" % (directory, options.n_train, model_size)
+        print "Opening model %s" % model_name
+        model = joblib.load(model_name)
+        for i in xrange(n_test_entries):
+            n_coordinates = myutils.get_n_coordinates(data_test[i])
+
+            model_fit = get_model_id(model_sizes, n_coordinates)
+
+            if model_fit == model_size:
+
+                # build input data
+                n_features = myutils.get_n_features(model_size)
+                x = numpy.zeros([1,n_features])
+                x[0] = data_test[i,0:n_features]
+
+                # predict
+                y = model.predict(x)
+                predictions[i] = y[0]
+
+                if MAKE_TEST_SET:
+                    # compare against ground truth
+                    p1 = ground_truth[i]
+                    p2 = y[0]
+                    dist = myutils.HaversineDistance( p1, p2)
+                    dist_string = "haversine_distance=%f" % dist
+                    total_dist = total_dist + dist
+                else:
+                    dist_string = ""
+
+                n_predicted = n_predicted + 1
+                print "[%d/%d] Processing TRIP_ID='%s' ncoordinates=%d model=%d %s" % (n_predicted,
+                                                                                   n_test_entries,
+                                                                                   ids_test[i],
+                                                                                   n_coordinates,
+                                                                                   model_size,
+                                                                                       dist_string)
+    if MAKE_TEST_SET:
+        print "Average haversine distance=%f" % (total_dist/n_test_entries)
+    else:
+        print "writing output file..."
+        # open file for writing
+        f = open('out.csv','w')
+        f.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
+
+        for i in xrange(n_test_entries):
+            # write result
+            f.write("\"" + ids_test[i] + "\",")
+            f.write(str(predictions[i,1]))
+            f.write(",")
+            f.write(str(predictions[i,0]))
+            f.write("\n")
+
+        # close file
+        f.close()
 
 def train_and_test():
 
@@ -113,11 +206,16 @@ def main():
     parser.add_option("-t", "--train",
                   action="store_true", dest="train", default=False,
                   help="train only")
+    parser.add_option("-p", "--predict",
+                  action="store_true", dest="predict", default=False,
+                  help="predict")
 
     (options, args) = parser.parse_args()
 
     if options.train:
         train(options)
+    elif options.predict:
+        predict(options)
     else:
         train_and_test()
 
