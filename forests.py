@@ -12,7 +12,7 @@ import os
 
 MAX_DIST = 1e6
 
-MAKE_TEST_SET = True
+MAKE_TEST_SET = False
 
 def get_model_id(model_sizes, n_coordinates):
     model = 0
@@ -63,7 +63,13 @@ def predict(options):
 
     model_sizes = [1,2,5,8,10,12,14,17,20,23,26,30,32,34,36,38,40,43,47,50,60,70,
                    80,90,100,110,120,130,160,220]
-    #model_sizes = [1,47,50]
+    #model_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+    #               19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+    #               35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51,
+    #               52, 53, 54, 57, 59, 60, 62, 63, 64, 65, 66, 67, 68, 70, 71, 72,
+    #               73, 76, 78, 79, 80, 83, 84, 85, 94, 97, 107, 110, 111, 112, 115,
+    #               134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
+    #               267, 327, 361, 369, 387, 400]
 
     print "loading test data..."
     if MAKE_TEST_SET:
@@ -79,7 +85,7 @@ def predict(options):
         data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
                                                   max_entries = 320,
                                                   max_coordinates=400)
-
+        
     n_test_entries = data_test.shape[0]
 
     print "predicting %d entries..." % n_test_entries
@@ -191,6 +197,30 @@ def train_and_test():
         # close file
         f.close()
 
+def gen_commands(options):
+    
+    data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
+                                                  max_entries = 320,
+                                                  max_coordinates=400)
+        
+    n_test_entries = data_test.shape[0]
+    
+    size_list = []
+    for i in xrange(n_test_entries):
+        s = myutils.get_n_coordinates(data_test[i])
+        if not (s in size_list):
+            size_list.append(s)
+    size_list.sort()
+    
+    for size in size_list:
+        print "python forests.py --train --dir %s -c %d -n %d -e %d" % (options.dir,
+                                                                        size,
+                                                                        options.n_train,
+                                                                        options.n_estimators)
+                                                                                                            
+    
+    return 0
+
 def main():
     affinity.set_process_affinity_mask(0, 2**multiprocessing.cpu_count()-1)
 
@@ -208,7 +238,10 @@ def main():
                   help="train only")
     parser.add_option("-p", "--predict",
                   action="store_true", dest="predict", default=False,
-                  help="predict")
+                   help="predict")
+    parser.add_option("-g", "--generate",
+                  action="store_true", dest="gen_commands", default=False,
+                  help="generate train commands")
 
     (options, args) = parser.parse_args()
 
@@ -216,6 +249,8 @@ def main():
         train(options)
     elif options.predict:
         predict(options)
+    elif options.gen_commands:
+        gen_commands(options)
     else:
         train_and_test()
 
