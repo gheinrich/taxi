@@ -184,10 +184,7 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
     target=numpy.empty([max_entries,2])
     first = True
     ids=[]
-    if total_records>0:
-        step = int(total_records/max_entries)
-    else:
-        step = 1
+    step = max(1,int(total_records/max_entries))
     with open(filename, 'rb') as f:
         input_sequence = []
         n_entries = 0
@@ -219,7 +216,7 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                         metadata=[time,weekday]
                         assert METADATA_LEN == len(metadata)
                         data[n_entries,:METADATA_LEN]=metadata
-                        data[n_entries,METADATA_LEN:n_features] = numpy.ravel(polyline[n_coordinates])
+                        data[n_entries,METADATA_LEN:n_features] = numpy.ravel(polyline[:n_coordinates])
                         # save end destination into target matrix
                         target[n_entries]=polyline[-1]
                         n_entries = n_entries + 1
