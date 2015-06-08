@@ -47,6 +47,26 @@ def get_n_coordinates(entry):
 def get_n_features(n_coordinates):
     return 2*n_coordinates + METADATA_LEN
 
+def get_polyline(entry):
+    n_coordinates = get_n_coordinates(entry)
+    polyline = []
+    for i in xrange(n_coordinates):
+        polyline.append([entry[METADATA_LEN+2*i],entry[METADATA_LEN+2*i+1]])
+    return polyline
+
+def get_taxi_id(entry):
+    assert(METADATA_LEN>2)
+    return int(entry[2])
+
+def get_trip_stats(entry):
+    polyline = get_polyline(entry)
+    poly_len = len(polyline)
+    air_distance = HaversineDistance(polyline[0], polyline[-1])
+    land_distance = 0
+    for i in xrange(1,poly_len):
+        land_distance += HaversineDistance(polyline[i], polyline[i-1])
+    return air_distance, land_distance
+
 def load_data(filename='../data/train.csv', max_entries=100):
     data=[]
     first = True
@@ -79,52 +99,11 @@ def load_data(filename='../data/train.csv', max_entries=100):
                 break
     return data
 
-
-def load_data_sparse(filename='../data/train.csv', max_entries=100, max_features=20):
-    data=scipy.sparse.lil_matrix((max_entries, max_features))
-    target=numpy.empty([max_entries,2])
-    first = True
-    ids=[]
-    with open(filename, 'rb') as f:
-        input_sequence = []
-        n_entries = 0
-        reader = csv.reader(f)
-        for row in reader:
-            if first:
-                missing_data_idx = row.index("MISSING_DATA")
-                origin_call_idx = row.index("ORIGIN_CALL")
-                polyline_idx = row.index("POLYLINE")
-                trip_id_idx = row.index("TRIP_ID")
-                timestamp_idx = row.index("TIMESTAMP")
-                first = False
-            else:
-                if row[missing_data_idx] == "False":
-                    polyline = eval(row[polyline_idx])
-                    polyline_len = len(polyline)
-                    if polyline_len > 0:
-                        # save ids
-                        ids.append(row[trip_id_idx])
-                        # save minute of day and week of day into feature matrix
-                        timestamp = eval(row[timestamp_idx])
-                        dt = datetime.datetime.fromtimestamp(timestamp)
-                        time = dt.hour*60 + dt.minute
-                        weekday = dt.weekday()
-                        metadata=[time,weekday]
-                        assert METADATA_LEN == len(metadata)
-                        data[n_entries,:METADATA_LEN]=metadata
-                        # save coordinates (up to max_features-metadata) into feature matrix
-                        n_coordinates = min(max_features-METADATA_LEN,polyline_len)
-                        data[n_entries,METADATA_LEN:METADATA_LEN+n_coordinates] = numpy.ravel(polyline)[:n_coordinates]
-                        # save end destination into target matrix
-                        target[n_entries]=polyline[-1]
-                        n_entries = n_entries + 1
-                        if n_entries % (max_entries/20) == 0:
-                            print "%d/%d" % (n_entries,max_entries)
-            if n_entries >= max_entries:
-                break
-    return data.tocsr(),target,ids
-
-def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinates=20, skip_records = 0, total_records=-1):
+def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinates=20, skip_records = 0, total_records=-1,
+                    load_taxi_id=False):
+    global METADATA_LEN
+    if load_taxi_id:
+        METADATA_LEN = 3
     max_features = get_n_features(max_coordinates)
     data=numpy.empty([max_entries,max_features])
     target=numpy.empty([max_entries,2])
@@ -134,6 +113,10 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
         step = int((total_records-skip_records)/max_entries)
     else:
         step = 1
+    if max_entries/20 > 1:
+        progress_report_step = int(max_entries/20)
+    else:
+        progress_report_step = 1
     with open(filename, 'rb') as f:
         input_sequence = []
         n_entries = 0
@@ -146,6 +129,7 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                 polyline_idx = row.index("POLYLINE")
                 trip_id_idx = row.index("TRIP_ID")
                 timestamp_idx = row.index("TIMESTAMP")
+                taxi_id_idx = row.index("TAXI_ID")
                 first = False
             else:
                 n_parsed = n_parsed + 1
@@ -162,7 +146,10 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                         dt = datetime.datetime.fromtimestamp(timestamp)
                         time = dt.hour*60 + dt.minute
                         weekday = dt.weekday()
-                        metadata=[time,weekday]
+                        if load_taxi_id:
+                            metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
+                        else:
+                            metadata=[time,weekday]
                         assert METADATA_LEN == len(metadata)
                         data[n_entries,:METADATA_LEN]=metadata
                         # save coordinates (up to max_coordinates) into feature matrix
@@ -172,7 +159,7 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                         # save end destination into target matrix
                         target[n_entries]=polyline[-1]
                         n_entries = n_entries + 1
-                        if n_entries % (max_entries/20) == 0:
+                        if n_entries % progress_report_step == 0:
                             print "%d/%d" % (n_entries,max_entries)
             if n_entries >= max_entries:
                 break
@@ -249,21 +236,6 @@ def make_test_data_dense(data, target, n_entries=100, required_n_coordinates=-1)
                 break
     return test_data,ground_truth
 
-def make_test_data(input_data, n_entries=100):
-    test_data = []
-    ground_truth = []
-    data_len = len(input_data)
-    for i in xrange(n_entries):
-        idx = random.randint(0, data_len - 1)
-        input_record = input_data[idx]
-        ground_truth.append(input_record.coordinates[-1])
-        l = random.randint(1, len(input_record.coordinates))
-        test_record = Record(trip_id=input_record.trip_id,
-                             origin_call=input_record.origin_call,
-                             timestamp=input_record.timestamp,
-                             coordinates=input_record.coordinates[0:l])
-        test_data.append(test_record)
-    return test_data,ground_truth
 
 if __name__ == "__main__":
     n_entries = 1000

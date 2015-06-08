@@ -8,11 +8,37 @@ import multiprocessing
 from optparse import OptionParser
 from sklearn.externals import joblib
 import numpy
+import matplotlib.pyplot as plt
 import os
+import random
 
 MAX_DIST = 1e6
 
 MAKE_TEST_SET = False
+VISUALIZE = True
+
+class VisualizeTrip:
+    def __init__(self):
+        self.color_index = 0
+
+    def __call__(self,polyline,prediction=None,truth=None):
+        colors = "bgrcmyk"
+        color = colors[self.color_index % len(colors)]
+        self.color_index += 1
+        x = numpy.array(polyline)
+        # start of itinerary
+        plt.plot(x[0,0],x[0,1],'>',c=color)
+        # rest of itinerary
+        plt.plot(x[:,0],x[:,1],'-',c=color)
+        # prediction
+        if prediction is not None:
+            plt.plot(prediction[0],prediction[1],'o',c=color)
+        # ground truth
+        if truth is not None:
+            plt.plot(truth[0],truth[1],'D',c=color)
+        # draw dashed line between prediction and ground truth
+        if (prediction is not None) and (truth is not None):
+            plt.plot([truth[0],prediction[0]],[truth[1],prediction[1]],'--',c=color)
 
 def get_model_id(model_sizes, n_coordinates):
     model = 0
@@ -61,15 +87,16 @@ def train(options):
 def predict(options):
     directory = options.dir
 
-    model_sizes = [1,2,5,8,10,12,14,17,20,23,26,30,32,34,36,38,40,43,47,50,60,70,
-                   80,90,100,110,120,130,160,220]
-    #model_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-    #               19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
-    #               35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51,
-    #               52, 53, 54, 57, 59, 60, 62, 63, 64, 65, 66, 67, 68, 70, 71, 72,
-    #               73, 76, 78, 79, 80, 83, 84, 85, 94, 97, 107, 110, 111, 112, 115,
-    #               134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
-    #               267, 327, 361, 369, 387, 400]
+    #model_sizes = [1,2,5,8,10,12,14,17,20,23,26,30,32,34,36,38,40,43,47,50,60,70,
+    #               80,90,100,110,120,130,160,220]
+    model_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+                   19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+                   35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51,
+                   52, 53, 54, 57, 59, 60, 62, 63, 64, 65, 66, 67, 68, 70, 71, 72,
+                   73, 76, 78, 79, 80, 83, 84, 85, 94, 97, 107, 110, 111, 112, 115,
+                   134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
+                   267, 327, 361, 369, 387, 400]
+    #model_sizes = [1,20]
 
     print "loading test data..."
     if MAKE_TEST_SET:
@@ -85,7 +112,7 @@ def predict(options):
         data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
                                                   max_entries = 320,
                                                   max_coordinates=400)
-        
+
     n_test_entries = data_test.shape[0]
 
     print "predicting %d entries..." % n_test_entries
@@ -117,16 +144,22 @@ def predict(options):
                     p1 = ground_truth[i]
                     p2 = y[0]
                     dist = myutils.HaversineDistance( p1, p2)
-                    dist_string = "haversine_distance=%f" % dist
+                    dist_string = "haversine_distance=%.2f" % dist
                     total_dist = total_dist + dist
                 else:
                     dist_string = ""
 
                 n_predicted = n_predicted + 1
-                print "[%d/%d] Processing TRIP_ID='%s' ncoordinates=%d model=%d %s" % (n_predicted,
+                air_distance, land_distance = myutils.get_trip_stats(data_test[i])
+                if air_distance>0:
+                    ratio = land_distance/air_distance
+                else:
+                    ratio = 0
+                print "[%d/%d] Processing TRIP_ID='%s' ncoordinates=%d dist_ratio=%.2f model=%d %s" % (n_predicted,
                                                                                    n_test_entries,
                                                                                    ids_test[i],
                                                                                    n_coordinates,
+                                                                                   ratio,
                                                                                    model_size,
                                                                                        dist_string)
     if MAKE_TEST_SET:
@@ -148,78 +181,69 @@ def predict(options):
         # close file
         f.close()
 
+    if VISUALIZE:
+        visu = VisualizeTrip()
+        max_figures = 12
+        trips_per_figure = max(1,int(n_test_entries/max_figures))
+        for i in xrange(n_test_entries):
+            if i%trips_per_figure ==0:
+                plt.figure(i/trips_per_figure+1)
+            # visualize
+            if MAKE_TEST_SET:
+                truth = ground_truth[i]
+            else:
+                truth = None
+            visu(myutils.get_polyline(data_test[i]),predictions[i],truth)
+        plt.show()
+
 def train_and_test():
+    assert(0)
 
-    n_entries = 5000
-
-    print "loading training data..."
-    data,target,dummy_ids = myutils.load_data_dense(max_entries = n_entries, max_features=20, total_records=1e6)
-
-    print "loading test data..."
-    if MAKE_TEST_SET:
-        n_test_entries = 320
-        test_data,ground_truth = myutils.make_test_data_sparse(data,target, n_entries=n_test_entries,
-                                                               n_features=20)
-    else:
-        test_data,dummy_target,test_ids = myutils.load_data_sparse(filename='../data/test.csv',
-                                                     max_entries = n_entries,
-                                                     max_features=50)
-        n_test_entries = len(test_ids)
-
-    print "building model..."
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=100, n_jobs=-1)
-    model.fit(data,target)
-
-    print "predicting..."
-    predictions = model.predict(test_data)
-
-    if MAKE_TEST_SET:
-        print "checking predictions..."
-        dist = 0
-        for i in xrange(n_test_entries):
-            p1 = ground_truth[i]
-            p2 = predictions[i]
-            dist = dist + myutils.HaversineDistance( p1, p2)
-        print "Mean haversine distance: %f" % (dist / n_test_entries)
-    else:
-        # open file for writing
-        f = open('out.csv','w')
-        f.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
-
-        for i in xrange(n_test_entries):
-            # write result
-            f.write("\"" + test_ids[i] + "\",")
-            f.write(str(predictions[i,1]))
-            f.write(",")
-            f.write(str(predictions[i,0]))
-            f.write("\n")
-
-        # close file
-        f.close()
 
 def gen_commands(options):
-    
+
     data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
                                                   max_entries = 320,
                                                   max_coordinates=400)
-        
+
     n_test_entries = data_test.shape[0]
-    
+
     size_list = []
     for i in xrange(n_test_entries):
         s = myutils.get_n_coordinates(data_test[i])
         if not (s in size_list):
             size_list.append(s)
     size_list.sort()
-    
+
     for size in size_list:
         print "python forests.py --train --dir %s -c %d -n %d -e %d" % (options.dir,
                                                                         size,
                                                                         options.n_train,
                                                                         options.n_estimators)
-                                                                                                            
-    
+
+
     return 0
+
+def stats(options):
+    n_entries = options.n_train
+    data,target,ids = myutils.load_data_dense(max_entries = n_entries,
+                                              max_coordinates=200,
+                                              total_records=1.5*1e6,
+                                              load_taxi_id=True)
+    drivers = {}
+    for i in xrange(n_entries):
+        air_distance, land_distance = myutils.get_trip_stats(data[i])
+        if air_distance>5:
+            taxi_id = myutils.get_taxi_id(data[i])
+            ratio = land_distance/air_distance
+            if taxi_id in drivers:
+                d = drivers[taxi_id]
+                drivers[taxi_id] = [(d[0]*d[1]+ratio)/(d[1]+1), d[1]+1]
+            else:
+                drivers[taxi_id] = [ratio, 1]
+
+    print drivers
+
 
 def main():
     affinity.set_process_affinity_mask(0, 2**multiprocessing.cpu_count()-1)
@@ -242,6 +266,9 @@ def main():
     parser.add_option("-g", "--generate",
                   action="store_true", dest="gen_commands", default=False,
                   help="generate train commands")
+    parser.add_option("-s", "--stats",
+                  action="store_true", dest="stats", default=False,
+                  help="generate train commands")
 
     (options, args) = parser.parse_args()
 
@@ -251,6 +278,8 @@ def main():
         predict(options)
     elif options.gen_commands:
         gen_commands(options)
+    elif options.stats:
+        stats(options)
     else:
         train_and_test()
 
