@@ -165,7 +165,11 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                 break
     return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
-def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1):
+def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1,
+                      load_taxi_id=False):
+    global METADATA_LEN
+    if load_taxi_id:
+        METADATA_LEN = 3
     n_features = get_n_features(n_coordinates)
     data=numpy.empty([max_entries,n_features])
     target=numpy.empty([max_entries,2])
@@ -184,6 +188,7 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                 polyline_idx = row.index("POLYLINE")
                 trip_id_idx = row.index("TRIP_ID")
                 timestamp_idx = row.index("TIMESTAMP")
+                taxi_id_idx = row.index("TAXI_ID")
                 first = False
             else:
                 n_parsed = n_parsed + 1
@@ -200,7 +205,10 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                         dt = datetime.datetime.fromtimestamp(timestamp)
                         time = dt.hour*60 + dt.minute
                         weekday = dt.weekday()
-                        metadata=[time,weekday]
+                        if load_taxi_id:
+                            metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
+                        else:
+                            metadata=[time,weekday]
                         assert METADATA_LEN == len(metadata)
                         data[n_entries,:METADATA_LEN]=metadata
                         data[n_entries,METADATA_LEN:n_features] = numpy.ravel(polyline[:n_coordinates])

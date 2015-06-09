@@ -56,7 +56,8 @@ def train(options):
 
     data,target,dummy_ids = myutils.load_data_ncoords(max_entries = n_entries,
                                                       n_coordinates=n_coordinates,
-                                                      total_records=1e6)
+                                                      total_records=1e6,
+                                                      load_taxi_id=True)
 
     print "splitting data into training/test sets..."
     n_test_entries = 320
