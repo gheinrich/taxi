@@ -13,7 +13,9 @@ import numpy
 
 Record = namedtuple('Record', 'trip_id, origin_call, timestamp,coordinates')
 
-METADATA_LEN = 2
+METADATA_LEN = 3
+TARGET_LEN = 3
+TIME_STEP = 15
 
 def fastDistance(p1, p2):
     return (p1[0]-p2[0])**2 + (p1[1]-p2[1])**2
@@ -99,14 +101,10 @@ def load_data(filename='../data/train.csv', max_entries=100):
                 break
     return data
 
-def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinates=20, skip_records = 0, total_records=-1,
-                    load_taxi_id=False):
-    global METADATA_LEN
-    if load_taxi_id:
-        METADATA_LEN = 3
+def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinates=20, skip_records = 0, total_records=-1):
     max_features = get_n_features(max_coordinates)
     data=numpy.empty([max_entries,max_features])
-    target=numpy.empty([max_entries,2])
+    target=numpy.empty([max_entries,TARGET_LEN])
     first = True
     ids=[]
     if total_records>0:
@@ -146,10 +144,7 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                         dt = datetime.datetime.fromtimestamp(timestamp)
                         time = dt.hour*60 + dt.minute
                         weekday = dt.weekday()
-                        if load_taxi_id:
-                            metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
-                        else:
-                            metadata=[time,weekday]
+                        metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
                         assert METADATA_LEN == len(metadata)
                         data[n_entries,:METADATA_LEN]=metadata
                         # save coordinates (up to max_coordinates) into feature matrix
@@ -157,7 +152,9 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                         n_features = get_n_features(n_coordinates)
                         data[n_entries,METADATA_LEN:n_features] = numpy.ravel(polyline[:n_coordinates])
                         # save end destination into target matrix
-                        target[n_entries]=polyline[-1]
+                        target[n_entries,0:2]=polyline[-1]
+                        # save total trip time
+                        target[n_entries,2]=polyline_len * TIME_STEP
                         n_entries = n_entries + 1
                         if n_entries % progress_report_step == 0:
                             print "%d/%d" % (n_entries,max_entries)
@@ -165,14 +162,10 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                 break
     return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
-def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1,
-                      load_taxi_id=False):
-    global METADATA_LEN
-    if load_taxi_id:
-        METADATA_LEN = 3
+def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1):
     n_features = get_n_features(n_coordinates)
     data=numpy.empty([max_entries,n_features])
-    target=numpy.empty([max_entries,2])
+    target=numpy.empty([max_entries,TARGET_LEN])
     first = True
     ids=[]
     step = max(1,int(total_records/max_entries))
@@ -191,8 +184,8 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                 taxi_id_idx = row.index("TAXI_ID")
                 first = False
             else:
-                n_parsed = n_parsed + 1
                 if n_parsed % step != 0:
+                    n_parsed += 1
                     continue
                 if row[missing_data_idx] == "False":
                     polyline = eval(row[polyline_idx])
@@ -205,16 +198,16 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                         dt = datetime.datetime.fromtimestamp(timestamp)
                         time = dt.hour*60 + dt.minute
                         weekday = dt.weekday()
-                        if load_taxi_id:
-                            metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
-                        else:
-                            metadata=[time,weekday]
+                        metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
                         assert METADATA_LEN == len(metadata)
                         data[n_entries,:METADATA_LEN]=metadata
                         data[n_entries,METADATA_LEN:n_features] = numpy.ravel(polyline[:n_coordinates])
                         # save end destination into target matrix
-                        target[n_entries]=polyline[-1]
+                        target[n_entries,0:2]=polyline[-1]
+                        # save remaining trip time
+                        target[n_entries,2]=(polyline_len - n_coordinates) * TIME_STEP
                         n_entries = n_entries + 1
+                        n_parsed += 1
                         if n_entries % (max_entries/20) == 0:
                             print "%d/%d" % (n_entries,max_entries)
             if n_entries >= max_entries:
@@ -223,7 +216,7 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
     return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
 def make_test_data_dense(data, target, n_entries=100, required_n_coordinates=-1):
-    ground_truth=numpy.empty([n_entries,2])
+    ground_truth=numpy.empty([n_entries,TARGET_LEN])
     data_len = data.shape[0]
     max_features = data.shape[1]
     test_data = numpy.zeros([n_entries, max_features])

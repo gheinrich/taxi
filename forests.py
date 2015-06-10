@@ -14,8 +14,8 @@ import random
 
 MAX_DIST = 1e6
 
-MAKE_TEST_SET = False
-VISUALIZE = True
+MAKE_TEST_SET = True
+VISUALIZE = False
 
 class VisualizeTrip:
     def __init__(self):
@@ -56,8 +56,7 @@ def train(options):
 
     data,target,dummy_ids = myutils.load_data_ncoords(max_entries = n_entries,
                                                       n_coordinates=n_coordinates,
-                                                      total_records=1e6,
-                                                      load_taxi_id=True)
+                                                      total_records=1e6)
 
     print "splitting data into training/test sets..."
     n_test_entries = 320
@@ -79,11 +78,15 @@ def train(options):
     print "computing test set predictions..."
     predictions = model.predict(data_test)
     dist = 0
+    log_time = 0
     for i in xrange(n_test_entries):
         p1 = target_test[i]
         p2 = predictions[i]
-        dist = dist + myutils.HaversineDistance( p1, p2)
-    print "Mean haversine distance: %f" % (dist / n_test_entries)
+        dist += myutils.HaversineDistance( p1, p2)
+        t1 = target_test[i,2] + n_coordinates*myutils.TIME_STEP
+        t2 = predictions[i,2] + n_coordinates*myutils.TIME_STEP
+        log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
+    print "Mean haversine distance: %f, RMSLE=%f" % (dist/n_test_entries, numpy.sqrt(log_time/n_test_entries))
 
 def predict(options):
     directory = options.dir
@@ -104,7 +107,7 @@ def predict(options):
         n_test_entries = 320
         n_entries = 2*n_test_entries
         data,target,ids = myutils.load_data_dense(max_entries = n_entries,
-                                                  max_coordinates=200,
+                                                  max_coordinates=500,
                                                   skip_records=1e6,
                                                   total_records=1.5*1e6)
         data_test,ground_truth = myutils.make_test_data_dense(data,target, n_entries=n_test_entries)
@@ -119,7 +122,8 @@ def predict(options):
     print "predicting %d entries..." % n_test_entries
     n_predicted = 0
     total_dist = 0
-    predictions = numpy.zeros([n_test_entries,2])
+    total_log_time = 0
+    predictions = numpy.zeros([n_test_entries,myutils.TARGET_LEN])
     for model_size in model_sizes:
         model_name = "%s/model_%d_%d.pkl" % (directory, options.n_train, model_size)
         print "Opening model %s" % model_name
@@ -138,17 +142,25 @@ def predict(options):
 
                 # predict
                 y = model.predict(x)
-                predictions[i] = y[0]
+                predictions[i,0:2] = y[0,0:2]
+                assert(y[0,2]>0)
+                predictions[i,2] = y[0,2] + n_coordinates*myutils.TIME_STEP
 
                 if MAKE_TEST_SET:
                     # compare against ground truth
-                    p1 = ground_truth[i]
-                    p2 = y[0]
+                    p1 = ground_truth[i,0:2]
+                    p2 = y[0,0:2]
                     dist = myutils.HaversineDistance( p1, p2)
-                    dist_string = "haversine_distance=%.2f" % dist
+                    dist_string = "haversine_dist=%.2f" % dist
                     total_dist = total_dist + dist
+                    t1 = ground_truth[i,2]
+                    t2 = predictions[i,2]
+                    log_time = (numpy.log(t1+1) - numpy.log(t2+1))**2
+                    total_log_time += log_time
+                    time_diff_string = "time diff=%ds (log=%.3f)" % (int(t2-t1),log_time)
                 else:
                     dist_string = ""
+                    time_diff_string = ""
 
                 n_predicted = n_predicted + 1
                 air_distance, land_distance = myutils.get_trip_stats(data_test[i])
@@ -156,35 +168,44 @@ def predict(options):
                     ratio = land_distance/air_distance
                 else:
                     ratio = 0
-                print "[%d/%d] Processing TRIP_ID='%s' ncoordinates=%d dist_ratio=%.2f model=%d %s" % (n_predicted,
+                print "[%d/%d] Processing TRIP_ID='%s' ncoords=%d dist_ratio=%.2f model=%d %s %s" % (n_predicted,
                                                                                    n_test_entries,
                                                                                    ids_test[i],
                                                                                    n_coordinates,
                                                                                    ratio,
                                                                                    model_size,
-                                                                                       dist_string)
+                                                                                   dist_string,
+                                                                                   time_diff_string)
     if MAKE_TEST_SET:
-        print "Average haversine distance=%f" % (total_dist/n_test_entries)
+        print "Average haversine distance=%f, RMSLE=%.3f" % (total_dist/n_test_entries, numpy.sqrt(total_log_time/n_test_entries))
     else:
         print "writing output file..."
-        # open file for writing
-        f = open('out.csv','w')
-        f.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
+        # open files for writing
+        fdest = open('out-destination.csv','w')
+        fdest.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
+
+        ftime = open('out-time.csv','w')
+        ftime.write("\"TRIP_ID\",\"TRAVEL_TIME\"\n")
 
         for i in xrange(n_test_entries):
             # write result
-            f.write("\"" + ids_test[i] + "\",")
-            f.write(str(predictions[i,1]))
-            f.write(",")
-            f.write(str(predictions[i,0]))
-            f.write("\n")
+            fdest.write("\"" + ids_test[i] + "\",")
+            fdest.write(str(predictions[i,1]))
+            fdest.write(",")
+            fdest.write(str(predictions[i,0]))
+            fdest.write("\n")
 
-        # close file
-        f.close()
+            # write result
+            ftime.write("\"" + ids_test[i] + "\",")
+            ftime.write(str(int(predictions[i,2])))
+            ftime.write("\n")
+
+        # close files
+        fdest.close()
 
     if VISUALIZE:
         visu = VisualizeTrip()
-        max_figures = 12
+        max_figures = 4
         trips_per_figure = max(1,int(n_test_entries/max_figures))
         for i in xrange(n_test_entries):
             if i%trips_per_figure ==0:
