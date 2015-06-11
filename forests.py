@@ -261,7 +261,7 @@ def stats(options):
 def split(options):
     ratio = 10
 
-    fin = open(options.input,'rb')
+    fin = open(options.input_train,'rb')
     ftrain = open('mytrain.csv','w')
     ftest = open('mytest.csv','w')
 
@@ -270,15 +270,11 @@ def split(options):
         if n_parsed == 0:
             # write header to both files
             ftrain.write(line)
-            ftrain.write('\n')
             ftest.write(line)
-            ftest.write('\n')
         elif n_parsed % ratio ==0:
             ftest.write(line)
-            ftest.write('\n')
         else:
             ftrain.write(line)
-            ftrain.write('\n')
         n_parsed += 1
 
     fin.close()
