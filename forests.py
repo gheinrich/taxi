@@ -32,7 +32,8 @@ def train(options):
     n_estimators = options.n_estimators
     directory = options.dir
 
-    data,target,dummy_ids = myutils.load_data_ncoords(max_entries = n_entries,
+    data,target,dummy_ids = myutils.load_data_ncoords(filename = options.input_train,
+                                                      max_entries = n_entries,
                                                       n_coordinates=n_coordinates,
                                                       total_records=1e6)
 
@@ -84,9 +85,10 @@ def predict(options):
     if MAKE_TEST_SET:
         n_test_entries = 320
         n_entries = 2*n_test_entries
-        data,target,ids = myutils.load_data_dense(max_entries = n_entries,
+        data,target,ids = myutils.load_data_dense(filename=options.input_test,
+                                                  max_entries = n_entries,
                                                   max_coordinates=500,
-                                                  skip_records=1.6e6,
+                                                  skip_records=0,
                                                   total_records=-1)
         data_test,ground_truth,ids_test = myutils.make_test_data_dense(data,
                                                                        target,
@@ -256,6 +258,32 @@ def stats(options):
 
     print drivers
 
+def split(options):
+    ratio = 10
+
+    fin = open(options.input,'rb')
+    ftrain = open('mytrain.csv','w')
+    ftest = open('mytest.csv','w')
+
+    n_parsed = 0
+    for line in fin:
+        if n_parsed == 0:
+            # write header to both files
+            ftrain.write(line)
+            ftrain.write('\n')
+            ftest.write(line)
+            ftest.write('\n')
+        elif n_parsed % ratio ==0:
+            ftest.write(line)
+            ftest.write('\n')
+        else:
+            ftrain.write(line)
+            ftrain.write('\n')
+        n_parsed += 1
+
+    fin.close()
+    ftrain.close()
+    ftest.close()
 
 def main():
     affinity.set_process_affinity_mask(0, 2**multiprocessing.cpu_count()-1)
@@ -281,6 +309,15 @@ def main():
     parser.add_option("-s", "--stats",
                   action="store_true", dest="stats", default=False,
                   help="generate train commands")
+    parser.add_option("", "--split",
+                  action="store_true", dest="split", default=False,
+                  help="split training file into train and test sets (90/10%)")
+    parser.add_option("", "--input_train",
+                  dest="input_train", default='../data/mytrain.csv',
+                  help="input training file")
+    parser.add_option("", "--input_test",
+                  dest="input_test", default='../data/mytest.csv',
+                  help="input test file")
 
     (options, args) = parser.parse_args()
 
@@ -292,6 +329,8 @@ def main():
         gen_commands(options)
     elif options.stats:
         stats(options)
+    elif options.split:
+        split(options)
     else:
         train_and_test()
 
