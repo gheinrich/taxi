@@ -16,29 +16,7 @@ MAX_DIST = 1e6
 
 MAKE_TEST_SET = True
 VISUALIZE = False
-
-class VisualizeTrip:
-    def __init__(self):
-        self.color_index = 0
-
-    def __call__(self,polyline,prediction=None,truth=None):
-        colors = "bgrcmyk"
-        color = colors[self.color_index % len(colors)]
-        self.color_index += 1
-        x = numpy.array(polyline)
-        # start of itinerary
-        plt.plot(x[0,0],x[0,1],'>',c=color)
-        # rest of itinerary
-        plt.plot(x[:,0],x[:,1],'-',c=color)
-        # prediction
-        if prediction is not None:
-            plt.plot(prediction[0],prediction[1],'o',c=color)
-        # ground truth
-        if truth is not None:
-            plt.plot(truth[0],truth[1],'D',c=color)
-        # draw dashed line between prediction and ground truth
-        if (prediction is not None) and (truth is not None):
-            plt.plot([truth[0],prediction[0]],[truth[1],prediction[1]],'--',c=color)
+SAVEFIGS = True
 
 def get_model_id(model_sizes, n_coordinates):
     model = 0
@@ -93,14 +71,14 @@ def predict(options):
 
     #model_sizes = [1,2,5,8,10,12,14,17,20,23,26,30,32,34,36,38,40,43,47,50,60,70,
     #               80,90,100,110,120,130,160,220]
-    model_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-                   19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
-                   35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51,
-                   52, 53, 54, 57, 59, 60, 62, 63, 64, 65, 66, 67, 68, 70, 71, 72,
-                   73, 76, 78, 79, 80, 83, 84, 85, 94, 97, 107, 110, 111, 112, 115,
-                   134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
-                   267, 327, 361, 369, 387, 400]
-    #model_sizes = [1,20]
+    #model_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+    #               19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+    #               35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51,
+    #               52, 53, 54, 57, 59, 60, 62, 63, 64, 65, 66, 67, 68, 70, 71, 72,
+    #               73, 76, 78, 79, 80, 83, 84, 85, 94, 97, 107, 110, 111, 112, 115,
+    #               134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
+    #               267, 327, 361, 369, 387, 400]
+    model_sizes = [1,  400]
 
     print "loading test data..."
     if MAKE_TEST_SET:
@@ -108,10 +86,12 @@ def predict(options):
         n_entries = 2*n_test_entries
         data,target,ids = myutils.load_data_dense(max_entries = n_entries,
                                                   max_coordinates=500,
-                                                  skip_records=1e6,
-                                                  total_records=1.5*1e6)
-        data_test,ground_truth = myutils.make_test_data_dense(data,target, n_entries=n_test_entries)
-        ids_test=['dummy'] * n_test_entries
+                                                  skip_records=1.6e6,
+                                                  total_records=-1)
+        data_test,ground_truth,ids_test = myutils.make_test_data_dense(data,
+                                                                       target,
+                                                                       ids,
+                                                                       n_entries=n_test_entries)
     else:
         data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
                                                   max_entries = 320,
@@ -124,6 +104,7 @@ def predict(options):
     total_dist = 0
     total_log_time = 0
     predictions = numpy.zeros([n_test_entries,myutils.TARGET_LEN])
+    visu = myutils.VisualizeTrip()
     for model_size in model_sizes:
         model_name = "%s/model_%d_%d.pkl" % (directory, options.n_train, model_size)
         print "Opening model %s" % model_name
@@ -148,9 +129,10 @@ def predict(options):
 
                 if MAKE_TEST_SET:
                     # compare against ground truth
-                    p1 = ground_truth[i,0:2]
+                    dest_truth = ground_truth[i,0:2]
                     p2 = y[0,0:2]
-                    dist = myutils.HaversineDistance( p1, p2)
+                    dist = myutils.HaversineDistance( dest_truth, p2)
+
                     dist_string = "haversine_dist=%.2f" % dist
                     total_dist = total_dist + dist
                     t1 = ground_truth[i,2]
@@ -158,9 +140,17 @@ def predict(options):
                     log_time = (numpy.log(t1+1) - numpy.log(t2+1))**2
                     total_log_time += log_time
                     time_diff_string = "time diff=%ds (log=%.3f)" % (int(t2-t1),log_time)
+                    fig_filename = "fig_%05.2f_%05.2f_%d.png" % (dist, log_time, i)
                 else:
                     dist_string = ""
                     time_diff_string = ""
+                    dest_truth = None
+                    fig_filename = "fig_%d_%s.png" % (i,ids_test[i])
+
+                if SAVEFIGS:
+                    plt.figure(i)
+                    visu(myutils.get_polyline(data_test[i]),predictions[i],dest_truth)
+                    plt.savefig(fig_filename)
 
                 n_predicted = n_predicted + 1
                 air_distance, land_distance = myutils.get_trip_stats(data_test[i])
@@ -169,13 +159,13 @@ def predict(options):
                 else:
                     ratio = 0
                 print "[%d/%d] Processing TRIP_ID='%s' ncoords=%d dist_ratio=%.2f model=%d %s %s" % (n_predicted,
-                                                                                   n_test_entries,
-                                                                                   ids_test[i],
-                                                                                   n_coordinates,
-                                                                                   ratio,
-                                                                                   model_size,
-                                                                                   dist_string,
-                                                                                   time_diff_string)
+                                                                                       n_test_entries,
+                                                                                       ids_test[i],
+                                                                                       n_coordinates,
+                                                                                       ratio,
+                                                                                       model_size,
+                                                                                       dist_string,
+                                                                                       time_diff_string)
     if MAKE_TEST_SET:
         print "Average haversine distance=%f, RMSLE=%.3f" % (total_dist/n_test_entries, numpy.sqrt(total_log_time/n_test_entries))
     else:
@@ -204,7 +194,7 @@ def predict(options):
         fdest.close()
 
     if VISUALIZE:
-        visu = VisualizeTrip()
+        plt.close("all")
         max_figures = 4
         trips_per_figure = max(1,int(n_test_entries/max_figures))
         for i in xrange(n_test_entries):

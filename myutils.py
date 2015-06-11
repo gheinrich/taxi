@@ -10,12 +10,39 @@ import math
 import scipy.sparse
 import datetime
 import numpy
+import matplotlib.pyplot as plt
 
 Record = namedtuple('Record', 'trip_id, origin_call, timestamp,coordinates')
 
 METADATA_LEN = 3
 TARGET_LEN = 3
 TIME_STEP = 15
+
+class VisualizeTrip:
+    def __init__(self):
+        self.color_index = 0
+
+    def __call__(self,polyline,prediction=None,truth=None):
+        colors = "bgrcmyk"
+        color = colors[self.color_index % len(colors)]
+        self.color_index += 1
+        x = numpy.array(polyline)
+        # start of itinerary
+        plt.plot(x[0,0],x[0,1],'>',c=color)
+        # rest of itinerary
+        plt.plot(x[:,0],x[:,1],'-',c=color)
+        # prediction
+        if prediction is not None:
+            plt.plot(prediction[0],prediction[1],'o',c=color)
+        # ground truth
+        if truth is not None:
+            plt.plot(truth[0],truth[1],'D',c=color)
+        # draw dotted line between prediction and ground truth
+        if (prediction is not None) and (truth is not None):
+            plt.plot([truth[0],prediction[0]],[truth[1],prediction[1]],':',c=color)
+        # draw dashed line between prediction and last known coordinate
+        if (prediction is not None):
+            plt.plot([x[-1,0],prediction[0]],[x[-1,1],prediction[1]],'--',c=color)
 
 def fastDistance(p1, p2):
     return (p1[0]-p2[0])**2 + (p1[1]-p2[1])**2
@@ -215,11 +242,12 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
     print "loaded %d entries out of %d max" % (n_entries, max_entries)
     return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
-def make_test_data_dense(data, target, n_entries=100, required_n_coordinates=-1):
+def make_test_data_dense(data, target, ids, n_entries=100, required_n_coordinates=-1):
     ground_truth=numpy.empty([n_entries,TARGET_LEN])
     data_len = data.shape[0]
     max_features = data.shape[1]
     test_data = numpy.zeros([n_entries, max_features])
+    test_ids = [""] * n_entries
     for i in xrange(n_entries):
         while True:
             # pick random index within data
@@ -234,8 +262,9 @@ def make_test_data_dense(data, target, n_entries=100, required_n_coordinates=-1)
                 n_features = get_n_features(l)
                 test_data[i,0:n_features] = data[idx,0:n_features]
                 ground_truth[i] = target[idx]
+                test_ids[i] = ids[idx]
                 break
-    return test_data,ground_truth
+    return test_data,ground_truth,test_ids
 
 
 if __name__ == "__main__":
