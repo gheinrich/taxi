@@ -14,9 +14,11 @@ import random
 
 MAX_DIST = 1e6
 
-MAKE_TEST_SET = True
+MAKE_TEST_SET = False
 VISUALIZE = False
-SAVEFIGS = True
+SAVEFIGS = False
+DEFAULT_N_TEST_ENTRIES = 20000
+DISPLAY_PREDICTION_STATS = False
 
 def get_model_id(model_sizes, n_coordinates):
     model = 0
@@ -70,21 +72,20 @@ def train(options):
 def predict(options):
     directory = options.dir
 
-    #model_sizes = [1,2,5,8,10,12,14,17,20,23,26,30,32,34,36,38,40,43,47,50,60,70,
-    #               80,90,100,110,120,130,160,220]
-    #model_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-    #               19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
-    #               35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51,
-    #               52, 53, 54, 57, 59, 60, 62, 63, 64, 65, 66, 67, 68, 70, 71, 72,
-    #               73, 76, 78, 79, 80, 83, 84, 85, 94, 97, 107, 110, 111, 112, 115,
-    #               134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
-    #               267, 327, 361, 369, 387, 400]
-    model_sizes = [1,  400]
+    model_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+                   19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+                   35, 36, 37, 38, 39, 42, 43, 44, 45, 46, 47, 48, 49, 51,
+                   52, 53, 54, 57, 59, 60, 62, 63, 64, 65, 66, 67, 68, 70, 71, 72,
+                   73, 76, 78, 79, 80, 83, 84, 85, 94, 97, 107, 110, 111, 112, 115,
+                   134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
+                   267, 327, 361, 369, 387, 400]
+    #model_sizes = [1, 51, 107]
 
     print "loading test data..."
     if MAKE_TEST_SET:
-        n_test_entries = 320
-        n_entries = 2*n_test_entries
+        n_test_entries = DEFAULT_N_TEST_ENTRIES
+        n_entries = min(200000, 100 * n_test_entries)
+
         data,target,ids = myutils.load_data_dense(filename=options.input_test,
                                                   max_entries = n_entries,
                                                   max_coordinates=500,
@@ -93,7 +94,8 @@ def predict(options):
         data_test,ground_truth,ids_test = myutils.make_test_data_dense(data,
                                                                        target,
                                                                        ids,
-                                                                       n_entries=n_test_entries)
+                                                                       n_entries=n_test_entries,
+                                                                       randomize = False)
     else:
         data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
                                                   max_entries = 320,
@@ -109,14 +111,17 @@ def predict(options):
     visu = myutils.VisualizeTrip()
     for model_size in model_sizes:
         model_name = "%s/model_%d_%d.pkl" % (directory, options.n_train, model_size)
-        print "Opening model %s" % model_name
-        model = joblib.load(model_name)
+        model = None
         for i in xrange(n_test_entries):
             n_coordinates = myutils.get_n_coordinates(data_test[i])
 
             model_fit = get_model_id(model_sizes, n_coordinates)
 
             if model_fit == model_size:
+
+                if model==None:
+                    print "Opening model %s" % model_name
+                    model = joblib.load(model_name)
 
                 # build input data
                 n_features = myutils.get_n_features(model_size)
@@ -126,7 +131,8 @@ def predict(options):
                 # predict
                 y = model.predict(x)
                 predictions[i,0:2] = y[0,0:2]
-                assert(y[0,2]>0)
+                if y[0,2]<=0:
+                    print "!!!! time prediction=%f" % y[0,2]
                 predictions[i,2] = y[0,2] + n_coordinates*myutils.TIME_STEP
 
                 if MAKE_TEST_SET:
@@ -155,45 +161,48 @@ def predict(options):
                     plt.savefig(fig_filename)
 
                 n_predicted = n_predicted + 1
-                air_distance, land_distance = myutils.get_trip_stats(data_test[i])
-                if air_distance>0:
-                    ratio = land_distance/air_distance
-                else:
-                    ratio = 0
-                print "[%d/%d] Processing TRIP_ID='%s' ncoords=%d dist_ratio=%.2f model=%d %s %s" % (n_predicted,
-                                                                                       n_test_entries,
-                                                                                       ids_test[i],
-                                                                                       n_coordinates,
-                                                                                       ratio,
-                                                                                       model_size,
-                                                                                       dist_string,
-                                                                                       time_diff_string)
+
+                if DISPLAY_PREDICTION_STATS:
+                    air_distance, land_distance = myutils.get_trip_stats(data_test[i])
+                    if air_distance>0:
+                        ratio = land_distance/air_distance
+                    else:
+                        ratio = 0
+                    print "[%d/%d] Processing TRIP_ID='%s' ncoords=%d dist_ratio=%.2f model=%d %s %s" % (n_predicted,
+                                                                                           n_test_entries,
+                                                                                           ids_test[i],
+                                                                                           n_coordinates,
+                                                                                           ratio,
+                                                                                           model_size,
+                                                                                           dist_string,
+                                                                                           time_diff_string)
     if MAKE_TEST_SET:
         print "Average haversine distance=%f, RMSLE=%.3f" % (total_dist/n_test_entries, numpy.sqrt(total_log_time/n_test_entries))
-    else:
-        print "writing output file..."
-        # open files for writing
-        fdest = open('out-destination.csv','w')
-        fdest.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
 
-        ftime = open('out-time.csv','w')
-        ftime.write("\"TRIP_ID\",\"TRAVEL_TIME\"\n")
+    print "writing output file..."
+    # open files for writing
+    fdest = open('out-destination.csv','w')
+    fdest.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
 
-        for i in xrange(n_test_entries):
-            # write result
-            fdest.write("\"" + ids_test[i] + "\",")
-            fdest.write(str(predictions[i,1]))
-            fdest.write(",")
-            fdest.write(str(predictions[i,0]))
-            fdest.write("\n")
+    ftime = open('out-time.csv','w')
+    ftime.write("\"TRIP_ID\",\"TRAVEL_TIME\"\n")
 
-            # write result
-            ftime.write("\"" + ids_test[i] + "\",")
-            ftime.write(str(int(predictions[i,2])))
-            ftime.write("\n")
+    for i in xrange(n_test_entries):
+        # write result
+        fdest.write("\"" + ids_test[i] + "\",")
+        fdest.write(str(predictions[i,1]))
+        fdest.write(",")
+        fdest.write(str(predictions[i,0]))
+        fdest.write("\n")
 
-        # close files
-        fdest.close()
+        # write result
+        ftime.write("\"" + ids_test[i] + "\",")
+        ftime.write(str(int(predictions[i,2])))
+        ftime.write("\n")
+
+    # close files
+    fdest.close()
+    ftime.close()
 
     if VISUALIZE:
         plt.close("all")
@@ -281,6 +290,99 @@ def split(options):
     ftrain.close()
     ftest.close()
 
+def train_step2(options):
+
+    print "loading test data..."
+
+    n_test_entries = DEFAULT_N_TEST_ENTRIES
+    n_entries = min(200000, 100 * n_test_entries)
+    data,target,ids = myutils.load_data_dense(filename=options.input_test,
+                                              max_entries = n_entries,
+                                              max_coordinates=500,
+                                              skip_records=0,
+                                              total_records=-1)
+    data_test,ground_truth,ids_test = myutils.make_test_data_dense(data,
+                                                                   target,
+                                                                   ids,
+                                                                   n_entries=n_test_entries,
+                                                                   randomize = False)
+
+    print "loading previous prediction..."
+    predictions, prediction_ids = myutils.load_predictions(destination_file=options.input_destination_prediction,
+                                                           n_entries = n_test_entries)
+
+    total_dist = 0
+    for i in xrange(n_test_entries):
+        dist = myutils.HaversineDistance(predictions[i], ground_truth[i])
+        total_dist += dist
+    print "Average dist=%f" % (total_dist/n_test_entries)
+
+    print "building new feature vectors..."
+    data = myutils.make_2nd_step_features(data_test, predictions)
+
+    print "splitting set..."
+    [data_train, data_test,
+     predictions_train, predictions_test,
+     target_train, target_test] = train_test_split(data,
+                                                   predictions,
+                                                   ground_truth,
+                                                   test_size=DEFAULT_N_TEST_ENTRIES/4)
+
+    print "Before training: train set average dist=%f" % (myutils.compute_average_haversine_dist(predictions_train, target_train))
+    print "Before training: test set average dist=%f" % (myutils.compute_average_haversine_dist(predictions_test, target_test))
+
+    print "building model..."
+    model = sklearn.ensemble.RandomForestRegressor(n_estimators=100, n_jobs=-1)
+    model.fit(data_train,target_train)
+    print str(model.feature_importances_)
+
+    model_name = "model_2nd_step.pkl"
+    print "saving model into %s..." % model_name
+    joblib.dump(model, model_name)
+
+    print "computing predictions..."
+    predictions_train_2nd_step = model.predict(data_train)
+    predictions_test_2nd_step = model.predict(data_test)
+
+    print "After training: train set average dist=%f" % (myutils.compute_average_haversine_dist(predictions_train_2nd_step, target_train))
+    print "After training: test set average dist=%f" % (myutils.compute_average_haversine_dist(predictions_test_2nd_step, target_test))
+
+def predict_step2(options):
+    n_test_entries = 320
+    print "loading test set..."
+    data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
+                                                              max_entries = n_test_entries,
+                                                              max_coordinates=400)
+
+    print "loading previous prediction..."
+    predictions, prediction_ids = myutils.load_predictions(destination_file=options.input_destination_prediction,
+                                                           n_entries = n_test_entries)
+
+    print "building new feature vectors..."
+    data = myutils.make_2nd_step_features(data_test, predictions)
+
+    print "loading 2nd step model..."
+    model_name = "model_2nd_step.pkl"
+    model = joblib.load(model_name)
+
+    print "making 2nd step predictions..."
+    predictions_test_2nd_step = model.predict(data)
+    assert(n_test_entries == predictions_test_2nd_step.shape[0])
+
+    print "saving predictions..."
+    fdest = open('out-destination-2ndstep.csv','w')
+    fdest.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
+    for i in xrange(n_test_entries):
+        # write result
+        fdest.write("\"" + ids_test[i] + "\",")
+        fdest.write(str(predictions_test_2nd_step[i,1]))
+        fdest.write(",")
+        fdest.write(str(predictions_test_2nd_step[i,0]))
+        fdest.write("\n")
+
+    # close files
+    fdest.close()
+
 def main():
     affinity.set_process_affinity_mask(0, 2**multiprocessing.cpu_count()-1)
 
@@ -314,6 +416,15 @@ def main():
     parser.add_option("", "--input_test",
                   dest="input_test", default='../data/mytest.csv',
                   help="input test file")
+    parser.add_option("", "--train_step2",
+                  action="store_true", dest="train_step2", default=False,
+                  help="adjust previous prediction")
+    parser.add_option("", "--predict_step2",
+                  action="store_true", dest="predict_step2", default=False,
+                  help="adjust previous prediction")
+    parser.add_option("", "--input_prediction",
+                  dest="input_destination_prediction", default='out-destination.csv',
+                  help="input destination prediction file")
 
     (options, args) = parser.parse_args()
 
@@ -327,6 +438,10 @@ def main():
         stats(options)
     elif options.split:
         split(options)
+    elif options.train_step2:
+        train_step2(options)
+    elif options.predict_step2:
+        predict_step2(options)
     else:
         train_and_test()
 

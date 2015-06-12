@@ -11,6 +11,7 @@ import scipy.sparse
 import datetime
 import numpy
 import matplotlib.pyplot as plt
+import binascii
 
 Record = namedtuple('Record', 'trip_id, origin_call, timestamp,coordinates')
 
@@ -142,6 +143,7 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
         progress_report_step = int(max_entries/20)
     else:
         progress_report_step = 1
+    print "Opening %s..." % filename
     with open(filename, 'rb') as f:
         input_sequence = []
         n_entries = 0
@@ -189,6 +191,30 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                 break
     return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
+def load_predictions(destination_file='../out-destination.csv', n_entries=0):
+    predictions=numpy.empty([n_entries,2])
+    trip_ids = []
+    first = True
+    n_parsed = 0
+    print "Opening %s..." % destination_file
+    with open(destination_file, 'rb') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if first:
+                trip_id_idx = row.index("TRIP_ID")
+                latitude_idx = row.index("LATITUDE")
+                longitude_idx = row.index("LONGITUDE")
+                first = False
+            else:
+                assert(n_parsed < n_entries)
+                prediction = [eval(row[longitude_idx]),eval(row[latitude_idx])]
+                trip_id = row[trip_id_idx]
+                predictions[n_parsed]=prediction
+                trip_ids.append(trip_id)
+                n_parsed += 1
+    assert(n_parsed == n_entries)
+    return predictions, trip_ids
+
 def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1):
     n_features = get_n_features(n_coordinates)
     data=numpy.empty([max_entries,n_features])
@@ -196,6 +222,7 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
     first = True
     ids=[]
     step = max(1,int(total_records/max_entries))
+    print "Opening %s..." % filename
     with open(filename, 'rb') as f:
         input_sequence = []
         n_entries = 0
@@ -242,20 +269,35 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
     print "loaded %d entries out of %d max" % (n_entries, max_entries)
     return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
-def make_test_data_dense(data, target, ids, n_entries=100, required_n_coordinates=-1):
-    ground_truth=numpy.empty([n_entries,TARGET_LEN])
+def make_test_data_dense(data, target, ids, n_entries=100, required_n_coordinates=-1, randomize=True):
     data_len = data.shape[0]
     max_features = data.shape[1]
+    if n_entries>data_len:
+        n_entries = data_len
+    ground_truth=numpy.empty([n_entries,TARGET_LEN])
     test_data = numpy.zeros([n_entries, max_features])
     test_ids = [""] * n_entries
     for i in xrange(n_entries):
         while True:
             # pick random index within data
-            idx = random.randint(0, data_len - 1)
+            if randomize:
+                idx = random.randint(0, data_len - 1)
+            else:
+                if n_entries > data_len:
+                    idx = binascii.crc32(str(i)) % data_len
+                else:
+                    idx = i
             n_coordinates = get_n_coordinates(data[idx])
             if required_n_coordinates==-1:
-                # pick random number of coordinates
-                l = random.randint(1, n_coordinates)
+                if randomize:
+                    # pick random number of coordinates
+                    #l = random.randint(1, n_coordinates)
+                    l = min(random.randint(1, n_coordinates),random.randint(1, n_coordinates))
+                else:
+                    if n_coordinates>1:
+                        l = 1 + (binascii.crc32(str(i)) % (n_coordinates-1))
+                    else:
+                        l = 1
             else:
                 l = required_n_coordinates
             if n_coordinates>=l:
@@ -266,6 +308,53 @@ def make_test_data_dense(data, target, ids, n_entries=100, required_n_coordinate
                 break
     return test_data,ground_truth,test_ids
 
+def make_2nd_step_features(data, predictions):
+    feature_len = 13
+    data_len = data.shape[0]
+    assert(data_len == predictions.shape[0])
+    data_out = numpy.zeros([data_len, feature_len])
+    for i in xrange(data_len):
+        entry = data[i]
+        t = entry[0]
+        weekday = entry[1]
+        taxi_id = entry[2]
+        start_lng = entry[3]
+        start_lat = entry[4]
+        n_coordinates = get_n_coordinates(entry)
+        n_features = get_n_features(n_coordinates)
+        end_lng = entry[n_features - 2]
+        end_lat = entry[n_features - 1]
+        air_distance, land_distance = get_trip_stats(entry)
+        if air_distance>0:
+            dist_ratio = land_distance/air_distance
+        else:
+            dist_ratio = -1
+        lng_direction = end_lng - start_lng
+        lat_direction = end_lat - start_lat
+        lng_prediction = predictions[i][0]
+        lat_prediction = predictions[i][1]
+        #new_entry = [t, weekday, taxi_id, n_coordinates,
+        #             start_lng, start_lat,
+        #             end_lng, end_lat,
+        #             dist_ratio, lng_direction, lat_direction,
+        #             lng_prediction, lat_prediction]
+        new_entry = [0, 0, 0, 0,
+                     start_lng, start_lat,
+                     end_lng, end_lat,
+                     dist_ratio, 0, 0,
+                     lng_prediction, lat_prediction]
+        data_out[i]= new_entry
+        assert(feature_len == len(new_entry))
+    return data_out
+
+def compute_average_haversine_dist (predictions, ground_truth):
+    n_entries = predictions.shape[0]
+    assert(n_entries == ground_truth.shape[0])
+    total_dist = 0
+    for i in xrange(n_entries):
+        dist = HaversineDistance(predictions[i], ground_truth[i])
+        total_dist += dist
+    return (total_dist/n_entries)
 
 if __name__ == "__main__":
     n_entries = 1000
