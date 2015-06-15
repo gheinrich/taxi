@@ -20,7 +20,7 @@ MAX_DIST = 1e6
 MAKE_TEST_SET = False
 VISUALIZE = False
 SAVEFIGS = False
-DEFAULT_N_TEST_ENTRIES = 20000
+DEFAULT_N_TEST_ENTRIES = 150000
 DISPLAY_PREDICTION_STATS = False
 
 def get_model_id(model_sizes, n_coordinates):
@@ -39,7 +39,7 @@ def report(grid_scores, n_top=10):
               numpy.std(score.cv_validation_scores)))
         print("Parameters: {0}".format(score.parameters))
         print("")
-        
+
 # Plot CV scores of a 2D grid search
 def plotGridResults2D(x, y, x_label, y_label, grid_scores):
 
@@ -118,7 +118,7 @@ def hypertune(options):
     # range of hyperparameters to try
     n_estimators_range = numpy.array([1,  10,   20, 25, 50, 100, 200])
     max_depth_range = numpy.array([11,  35,  101,  251, 401,  501, 1000, 10000])
-    
+
     # criss Grid search object
     grid = GridSearchCV(sklearn.ensemble.RandomForestRegressor(),
                     {'max_depth' : max_depth_range,
@@ -126,7 +126,7 @@ def hypertune(options):
                    cv=sklearn.cross_validation.KFold(n_entries, n_folds=10), n_jobs=-1,
                    scoring=scorer)
     grid.fit(data,target)
-    
+
     report(grid.grid_scores_)
 
     plotGridResults2D(max_depth_range, n_estimators_range, 'max depth', 'n estimators', grid.grid_scores_)
@@ -177,66 +177,72 @@ def predict(options):
     visu = myutils.VisualizeTrip()
     for model_size in model_sizes:
         model_name = "%s/model_%d_%d.pkl" % (directory, options.n_train, model_size)
-        model = None
+
+        entry_indices = []
         for i in xrange(n_test_entries):
             n_coordinates = myutils.get_n_coordinates(data_test[i])
 
             model_fit = get_model_id(model_sizes, n_coordinates)
 
             if model_fit == model_size:
+                entry_indices.append(i)
 
-                if model==None:
-                    print "Opening model %s" % model_name
-                    model = joblib.load(model_name)
+        if len(entry_indices)>0:
+            print "Opening model %s" % model_name
+            model = joblib.load(model_name)
 
-                # build input data
-                n_features = myutils.get_n_features(model_size)
-                x = numpy.zeros([1,n_features])
-                x[0] = data_test[i,0:n_features]
+            # build input data
+            n_features = myutils.get_n_features(model_size)
 
-                # predict
-                y = model.predict(x)
-                predictions[i,0:2] = y[0,0:2]
-                if y[0,2]<=0:
-                    print "!!!! time prediction=%f" % y[0,2]
-                predictions[i,2] = y[0,2] + n_coordinates*myutils.TIME_STEP
+            # create vector to inculde all test samples for this model
+            X = numpy.zeros([len(entry_indices),n_features])
+            for idx,val in enumerate(entry_indices):
+                X[idx] = data_test[val,0:n_features]
+
+            # predict all test samples for this model
+            Y = model.predict(X)
+            for idx,val in enumerate(entry_indices):
+                predictions[val,0:2] = Y[idx,0:2]
+                if Y[idx,2]<=0:
+                    print "!!!! time prediction=%f" % Y[idx,2]
+                predictions[val,2] = Y[idx,2] + n_coordinates*myutils.TIME_STEP
 
                 if MAKE_TEST_SET:
                     # compare against ground truth
-                    dest_truth = ground_truth[i,0:2]
-                    p2 = y[0,0:2]
+                    dest_truth = ground_truth[val,0:2]
+                    p2 = predictions[val,0:2]
                     dist = myutils.HaversineDistance( dest_truth, p2)
 
                     dist_string = "haversine_dist=%.2f" % dist
                     total_dist = total_dist + dist
-                    t1 = ground_truth[i,2]
-                    t2 = predictions[i,2]
+                    t1 = ground_truth[val,2]
+                    t2 = predictions[val,2]
                     log_time = (numpy.log(t1+1) - numpy.log(t2+1))**2
                     total_log_time += log_time
                     time_diff_string = "time diff=%ds (log=%.3f)" % (int(t2-t1),log_time)
-                    fig_filename = "fig_%05.2f_%05.2f_%d.png" % (dist, log_time, i)
+                    fig_filename = "fig_%05.2f_%05.2f_%d.png" % (dist, log_time, val)
                 else:
                     dist_string = ""
                     time_diff_string = ""
                     dest_truth = None
-                    fig_filename = "fig_%d_%s.png" % (i,ids_test[i])
+                    fig_filename = "fig_%d_%s.png" % (val,ids_test[val])
 
                 if SAVEFIGS:
-                    plt.figure(i)
-                    visu(myutils.get_polyline(data_test[i]),predictions[i],dest_truth)
+                    plt.figure(val)
+                    visu(myutils.get_polyline(data_test[val]),predictions[val],dest_truth)
                     plt.savefig(fig_filename)
 
                 n_predicted = n_predicted + 1
 
                 if DISPLAY_PREDICTION_STATS:
-                    air_distance, land_distance = myutils.get_trip_stats(data_test[i])
+                    air_distance, land_distance = myutils.get_trip_stats(data_test[val])
                     if air_distance>0:
                         ratio = land_distance/air_distance
                     else:
                         ratio = 0
                     print "[%d/%d] Processing TRIP_ID='%s' ncoords=%d dist_ratio=%.2f model=%d %s %s" % (n_predicted,
                                                                                            n_test_entries,
-                                                                                           ids_test[i],
+                                                                                           ids_test[val],
                                                                                            n_coordinates,
                                                                                            ratio,
                                                                                            model_size,
@@ -359,6 +365,7 @@ def split(options):
 def train_step2(options):
 
     print "loading test data..."
+    directory = options.dir
 
     n_test_entries = DEFAULT_N_TEST_ENTRIES
     n_entries = min(200000, 100 * n_test_entries)
@@ -398,12 +405,14 @@ def train_step2(options):
     print "Before training: test set average dist=%f" % (myutils.mean_haversine_dist(predictions_test, target_test))
 
     print "building model..."
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=100, n_jobs=-1)
+    model = sklearn.ensemble.RandomForestRegressor(n_estimators=500, n_jobs=-1)
     model.fit(data_train,target_train)
     print str(model.feature_importances_)
 
-    model_name = "model_2nd_step.pkl"
+    model_name = "%s/model_2nd_step.pkl" % directory
     print "saving model into %s..." % model_name
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     joblib.dump(model, model_name)
 
     print "computing predictions..."
@@ -414,6 +423,8 @@ def train_step2(options):
     print "After training: test set average dist=%f" % (myutils.mean_haversine_dist(predictions_test_2nd_step, target_test))
 
 def predict_step2(options):
+    directory = options.dir
+
     n_test_entries = 320
     print "loading test set..."
     data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
@@ -427,8 +438,8 @@ def predict_step2(options):
     print "building new feature vectors..."
     data = myutils.make_2nd_step_features(data_test, predictions)
 
-    print "loading 2nd step model..."
-    model_name = "model_2nd_step.pkl"
+    model_name = "%s/model_2nd_step.pkl" % directory
+    print "loading 2nd step model '%s'..." % model_name
     model = joblib.load(model_name)
 
     print "making 2nd step predictions..."
