@@ -3,6 +3,7 @@ import time
 import sklearn
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.cross_validation import train_test_split
+from sklearn.grid_search import GridSearchCV
 import affinity
 import multiprocessing
 from optparse import OptionParser
@@ -11,6 +12,7 @@ import numpy
 import matplotlib.pyplot as plt
 import os
 import random
+from operator import itemgetter
 
 MAX_DIST = 1e6
 
@@ -26,6 +28,32 @@ def get_model_id(model_sizes, n_coordinates):
         if model_sizes[j]<=n_coordinates:
             model = model_sizes[j]
     return model
+
+def report(grid_scores, n_top=10):
+    top_scores = sorted(grid_scores, key=itemgetter(1), reverse=True)[:n_top]
+    for i, score in enumerate(top_scores):
+        print("Model with rank: {0}".format(i + 1))
+        print("Mean validation score: {0:.3f} (std: {1:.3f})".format(
+              score.mean_validation_score,
+              numpy.std(score.cv_validation_scores)))
+        print("Parameters: {0}".format(score.parameters))
+        print("")
+        
+# Plot CV scores of a 2D grid search
+def plotGridResults2D(x, y, x_label, y_label, grid_scores):
+
+    scores = [abs(s[1]) for s in grid_scores]
+    scores = numpy.array(scores).reshape(len(x), len(y))
+
+    plt.figure()
+    plt.imshow(scores, interpolation='nearest', cmap=plt.cm.RdYlGn)
+    plt.xlabel(y_label)
+    plt.ylabel(x_label)
+    plt.colorbar()
+    plt.xticks(numpy.arange(len(y)), y, rotation=45)
+    plt.yticks(numpy.arange(len(x)), x)
+    plt.title('Validation accuracy')
+
 
 def train(options):
     n_coordinates = options.n_coordinates
@@ -68,6 +96,43 @@ def train(options):
         t2 = predictions[i,2] + n_coordinates*myutils.TIME_STEP
         log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
     print "Mean haversine distance: %f, RMSLE=%f" % (dist/n_test_entries, numpy.sqrt(log_time/n_test_entries))
+
+
+def hypertune(options):
+    n_coordinates = options.n_coordinates
+    assert n_coordinates != 0
+    n_entries = options.n_train
+    n_estimators = options.n_estimators
+    directory = options.dir
+
+    data,target,dummy_ids = myutils.load_data_ncoords(filename = options.input_train,
+                                                      max_entries = n_entries,
+                                                      n_coordinates=n_coordinates,
+                                                      total_records=-1)
+    n_entries = data.shape[0]
+
+    # create a scorer function out of our evaluation metric
+    scorer = sklearn.metrics.make_scorer(myutils.mean_haversine_dist, greater_is_better=False)
+
+    # range of hyperparameters to try
+    n_estimators_range = numpy.array([1,  10,   20, 25, 50, 100, 200])
+    max_depth_range = numpy.array([11,  35,  101,  251, 401,  501, 1000, 10000])
+    
+    # criss Grid search object
+    grid = GridSearchCV(sklearn.ensemble.RandomForestRegressor(),
+                    {'max_depth' : max_depth_range,
+                    'n_estimators' : n_estimators_range},
+                   cv=sklearn.cross_validation.KFold(n_entries, n_folds=10), n_jobs=-1,
+                   scoring=scorer)
+    grid.fit(data,target)
+    
+    report(grid.grid_scores_)
+
+    plotGridResults2D(max_depth_range, n_estimators_range, 'max depth', 'n estimators', grid.grid_scores_)
+    plt.show()
+
+######################
+
 
 def predict(options):
     directory = options.dir
@@ -328,8 +393,8 @@ def train_step2(options):
                                                    ground_truth,
                                                    test_size=DEFAULT_N_TEST_ENTRIES/4)
 
-    print "Before training: train set average dist=%f" % (myutils.compute_average_haversine_dist(predictions_train, target_train))
-    print "Before training: test set average dist=%f" % (myutils.compute_average_haversine_dist(predictions_test, target_test))
+    print "Before training: train set average dist=%f" % (myutils.mean_haversine_dist(predictions_train, target_train))
+    print "Before training: test set average dist=%f" % (myutils.mean_haversine_dist(predictions_test, target_test))
 
     print "building model..."
     model = sklearn.ensemble.RandomForestRegressor(n_estimators=100, n_jobs=-1)
@@ -344,8 +409,8 @@ def train_step2(options):
     predictions_train_2nd_step = model.predict(data_train)
     predictions_test_2nd_step = model.predict(data_test)
 
-    print "After training: train set average dist=%f" % (myutils.compute_average_haversine_dist(predictions_train_2nd_step, target_train))
-    print "After training: test set average dist=%f" % (myutils.compute_average_haversine_dist(predictions_test_2nd_step, target_test))
+    print "After training: train set average dist=%f" % (myutils.mean_haversine_dist(predictions_train_2nd_step, target_train))
+    print "After training: test set average dist=%f" % (myutils.mean_haversine_dist(predictions_test_2nd_step, target_test))
 
 def predict_step2(options):
     n_test_entries = 320
@@ -425,6 +490,9 @@ def main():
     parser.add_option("", "--input_prediction",
                   dest="input_destination_prediction", default='out-destination.csv',
                   help="input destination prediction file")
+    parser.add_option("", "--hypertune",
+                  action="store_true", dest="hypertune", default=False,
+                  help="hyper parameter tuning")
 
     (options, args) = parser.parse_args()
 
@@ -442,6 +510,8 @@ def main():
         train_step2(options)
     elif options.predict_step2:
         predict_step2(options)
+    elif options.hypertune:
+        hypertune(options)
     else:
         train_and_test()
 

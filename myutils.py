@@ -347,14 +347,15 @@ def make_2nd_step_features(data, predictions):
         assert(feature_len == len(new_entry))
     return data_out
 
-def compute_average_haversine_dist (predictions, ground_truth):
+def mean_haversine_dist (predictions, ground_truth):
     n_entries = predictions.shape[0]
     assert(n_entries == ground_truth.shape[0])
     total_dist = 0
     for i in xrange(n_entries):
         dist = HaversineDistance(predictions[i], ground_truth[i])
         total_dist += dist
-    return (total_dist/n_entries)
+    mean = total_dist/n_entries
+    return (mean)
 
 if __name__ == "__main__":
     n_entries = 1000
