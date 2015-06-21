@@ -4,6 +4,7 @@ import sklearn
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.cross_validation import train_test_split
 from sklearn.grid_search import GridSearchCV
+from sklearn.cluster import MiniBatchKMeans
 import affinity
 import multiprocessing
 from optparse import OptionParser
@@ -74,7 +75,7 @@ def train(options):
                                                                      test_size=n_test_entries)
 
     print "building model with %d coordinates ..." % n_coordinates
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1)
+    model = sklearn.ensemble.RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, oob_score=False)
     model.fit(data_train,target_train)
 
     if not os.path.exists(directory):
@@ -448,6 +449,29 @@ def predict_step2(options):
     # close files
     fdest.close()
 
+def cluster(options):
+    n_coordinates = 1
+    n_entries = options.n_train
+    directory = options.dir
+
+    print "loading data..."
+    dummy_data,target,dummy_ids = myutils.load_data_ncoords(filename = options.input_train,
+                                                      max_entries = n_entries,
+                                                      n_coordinates=n_coordinates,
+                                                      total_records=1e6)
+
+    print "finding clusters..."
+    n_clusters = 1000
+    km = MiniBatchKMeans(n_clusters=n_clusters, batch_size=5*n_clusters, init='random', n_init=20)
+    km.fit(target)
+    
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    model_name = "%s/model_cluster.pkl" % directory
+    print "saving model into %s" % model_name
+    joblib.dump(km, model_name)
+
 def main():
     affinity.set_process_affinity_mask(0, 2**multiprocessing.cpu_count()-1)
 
@@ -493,6 +517,9 @@ def main():
     parser.add_option("", "--hypertune",
                   action="store_true", dest="hypertune", default=False,
                   help="hyper parameter tuning")
+    parser.add_option("", "--cluster",
+                  action="store_true", dest="cluster", default=False,
+                  help="final destination clustering")
 
     (options, args) = parser.parse_args()
 
@@ -512,6 +539,8 @@ def main():
         predict_step2(options)
     elif options.hypertune:
         hypertune(options)
+    elif options.cluster:
+        cluster(options)
     else:
         train_and_test()
 
