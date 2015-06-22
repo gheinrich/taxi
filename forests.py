@@ -93,8 +93,8 @@ def train(options):
         p1 = target_test[i]
         p2 = predictions[i]
         dist += myutils.HaversineDistance( p1, p2)
-        t1 = target_test[i,2] + n_coordinates*myutils.TIME_STEP
-        t2 = predictions[i,2] + n_coordinates*myutils.TIME_STEP
+        t1 = target_test[i,2] + (n_coordinates-1)*myutils.TIME_STEP
+        t2 = predictions[i,2] + (n_coordinates-1)*myutils.TIME_STEP
         log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
     print "Mean haversine distance: %f, RMSLE=%f" % (dist/n_test_entries, numpy.sqrt(log_time/n_test_entries))
 
@@ -205,7 +205,10 @@ def predict(options):
                 predictions[val,0:2] = Y[idx,0:2]
                 if Y[idx,2]<=0:
                     print "!!!! time prediction=%f" % Y[idx,2]
-                predictions[val,2] = Y[idx,2] + n_coordinates*myutils.TIME_STEP
+                if model_size>1:
+                    predictions[val,2] = Y[idx,2] + (model_size-1)*myutils.TIME_STEP
+                else:
+                    predictions[val,2] = 660
 
                 if MAKE_TEST_SET:
                     # compare against ground truth
@@ -219,7 +222,10 @@ def predict(options):
                     t2 = predictions[val,2]
                     log_time = (numpy.log(t1+1) - numpy.log(t2+1))**2
                     total_log_time += log_time
-                    time_diff_string = "time diff=%ds (log=%.3f)" % (int(t2-t1),log_time)
+                    time_diff_string = "time diff=%ds, gt=%d (root log=%.3f,running=%f)" % (int(t2-t1),
+                                                                                            int(t1),
+                                                                                            numpy.sqrt(log_time),
+                                                                                     numpy.sqrt(total_log_time/(n_predicted+1)))
                     fig_filename = "fig_%05.2f_%05.2f_%d.png" % (dist, log_time, val)
                 else:
                     dist_string = ""
@@ -374,7 +380,7 @@ def train_step2(options):
                                               max_coordinates=500,
                                               skip_records=0,
                                               total_records=-1)
-    data_test,ground_truth,ids_test = myutils.make_test_data_dense(data,
+    data_made,ground_truth,ids_test = myutils.make_test_data_dense(data,
                                                                    target,
                                                                    ids,
                                                                    n_entries=n_test_entries,
@@ -382,31 +388,33 @@ def train_step2(options):
 
     print "loading previous prediction..."
     predictions, prediction_ids = myutils.load_predictions(destination_file=options.input_destination_prediction,
+                                                           time_file=options.input_time_prediction,
                                                            n_entries = n_test_entries)
 
-    total_dist = 0
-    for i in xrange(n_test_entries):
-        dist = myutils.HaversineDistance(predictions[i], ground_truth[i])
-        total_dist += dist
-    print "Average dist=%f" % (total_dist/n_test_entries)
+    print "Average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions, ground_truth),
+                                         myutils.RMSLE(predictions, ground_truth) )
 
     print "building new feature vectors..."
-    data = myutils.make_2nd_step_features(data_test, predictions)
+    data_nf = myutils.make_2nd_step_features(data_made, predictions)
 
     print "splitting set..."
     [data_train, data_test,
+     data_nf_train, data_nf_test,
      predictions_train, predictions_test,
-     target_train, target_test] = train_test_split(data,
+     target_train, target_test] = train_test_split(data_made,
+                                                   data_nf,
                                                    predictions,
                                                    ground_truth,
                                                    test_size=DEFAULT_N_TEST_ENTRIES/4)
 
-    print "Before training: train set average dist=%f" % (myutils.mean_haversine_dist(predictions_train, target_train))
-    print "Before training: test set average dist=%f" % (myutils.mean_haversine_dist(predictions_test, target_test))
+    print "Before training: train set average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions_train, target_train),
+                                                                   myutils.RMSLE(predictions_train, target_train))
+    print "Before training: test set average dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions_test, target_test),
+                                                                  myutils.RMSLE(predictions_test, target_test))
 
     print "building model..."
     model = sklearn.ensemble.RandomForestRegressor(n_estimators=500, n_jobs=-1)
-    model.fit(data_train,target_train)
+    model.fit(data_nf_train,target_train)
     print str(model.feature_importances_)
 
     model_name = "%s/model_2nd_step.pkl" % directory
@@ -416,11 +424,13 @@ def train_step2(options):
     joblib.dump(model, model_name)
 
     print "computing predictions..."
-    predictions_train_2nd_step = model.predict(data_train)
-    predictions_test_2nd_step = model.predict(data_test)
+    predictions_train_2nd_step = model.predict(data_nf_train)
+    predictions_test_2nd_step = model.predict(data_nf_test)
 
-    print "After training: train set average dist=%f" % (myutils.mean_haversine_dist(predictions_train_2nd_step, target_train))
-    print "After training: test set average dist=%f" % (myutils.mean_haversine_dist(predictions_test_2nd_step, target_test))
+    print "After training: train set average dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions_train_2nd_step, target_train),
+                                                                myutils.RMSLE(predictions_train_2nd_step, target_train))
+    print "After training: test set average dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions_test_2nd_step, target_test),
+                                                                 myutils.RMSLE(predictions_test_2nd_step, target_test))
 
 def predict_step2(options):
     directory = options.dir
@@ -446,9 +456,14 @@ def predict_step2(options):
     predictions_test_2nd_step = model.predict(data)
     assert(n_test_entries == predictions_test_2nd_step.shape[0])
 
-    print "saving predictions..."
+    print "making time predictions..."
+    myutils.adjust_predict_time(data_test, predictions_test_2nd_step)
+
+    print "saving destination predictions..."
     fdest = open('out-destination-2ndstep.csv','w')
+    ftime = open('out-time-2ndstep.csv','w')
     fdest.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
+    ftime.write("\"TRIP_ID\",\"TRAVEL_TIME\"\n")
     for i in xrange(n_test_entries):
         # write result
         fdest.write("\"" + ids_test[i] + "\",")
@@ -457,8 +472,14 @@ def predict_step2(options):
         fdest.write(str(predictions_test_2nd_step[i,0]))
         fdest.write("\n")
 
+        # write result
+        ftime.write("\"" + ids_test[i] + "\",")
+        ftime.write(str(int(predictions_test_2nd_step[i,2])))
+        ftime.write("\n")
     # close files
     fdest.close()
+    ftime.close()
+
 
 def cluster(options):
     n_coordinates = 1
@@ -522,9 +543,12 @@ def main():
     parser.add_option("", "--predict_step2",
                   action="store_true", dest="predict_step2", default=False,
                   help="adjust previous prediction")
-    parser.add_option("", "--input_prediction",
+    parser.add_option("", "--input_dest_prediction",
                   dest="input_destination_prediction", default='out-destination.csv',
                   help="input destination prediction file")
+    parser.add_option("", "--input_time_prediction",
+                  dest="input_time_prediction", default=None,
+                  help="input time prediction file")
     parser.add_option("", "--hypertune",
                   action="store_true", dest="hypertune", default=False,
                   help="hyper parameter tuning")

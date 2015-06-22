@@ -183,7 +183,7 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                         # save end destination into target matrix
                         target[n_entries,0:2]=polyline[-1]
                         # save total trip time
-                        target[n_entries,2]=polyline_len * TIME_STEP
+                        target[n_entries,2]=(polyline_len-1) * TIME_STEP
                         n_entries = n_entries + 1
                         if n_entries % progress_report_step == 0:
                             print "%d/%d" % (n_entries,max_entries)
@@ -191,8 +191,8 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                 break
     return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
-def load_predictions(destination_file='../out-destination.csv', n_entries=0):
-    predictions=numpy.empty([n_entries,2])
+def load_predictions(destination_file='../out-destination.csv', time_file=None, n_entries=0):
+    predictions=numpy.empty([n_entries,TARGET_LEN])
     trip_ids = []
     first = True
     n_parsed = 0
@@ -209,10 +209,28 @@ def load_predictions(destination_file='../out-destination.csv', n_entries=0):
                 assert(n_parsed < n_entries)
                 prediction = [eval(row[longitude_idx]),eval(row[latitude_idx])]
                 trip_id = row[trip_id_idx]
-                predictions[n_parsed]=prediction
+                predictions[n_parsed,0:2]=prediction
                 trip_ids.append(trip_id)
                 n_parsed += 1
     assert(n_parsed == n_entries)
+    if time_file != None:
+        n_parsed = 0
+        print "Opening %s..." % time_file
+        with open(time_file, 'rb') as f:
+            first = True
+            reader = csv.reader(f)
+            for row in reader:
+                if first:
+                    trip_id_idx = row.index("TRIP_ID")
+                    travel_time_idx = row.index("TRAVEL_TIME")
+                    first = False
+                else:
+                    assert(n_parsed < n_entries)
+                    prediction = eval(row[travel_time_idx])
+                    trip_id = row[trip_id_idx]
+                    assert(trip_id == trip_ids[n_parsed])
+                    predictions[n_parsed,2]=prediction
+                    n_parsed += 1
     return predictions, trip_ids
 
 def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1):
@@ -222,6 +240,10 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
     first = True
     ids=[]
     step = max(1,int(total_records/max_entries))
+
+    #
+    n_rejected=0
+
     print "Opening %s..." % filename
     with open(filename, 'rb') as f:
         input_sequence = []
@@ -245,6 +267,17 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                     polyline = eval(row[polyline_idx])
                     polyline_len = len(polyline)
                     if polyline_len >= n_coordinates:
+
+                        #
+                        #n_features = get_n_features(polyline_len)
+                        #entry = numpy.zeros([n_features])
+                        #entry[METADATA_LEN:n_features]=numpy.ravel(polyline)
+                        #air_distance, land_distance = get_trip_stats(entry)
+                        #if land_distance>10 and air_distance<1:
+                        #    n_rejected +=1
+                        #    print "reject (%d)" % n_rejected
+                        #    continue
+
                         # save ids
                         ids.append(row[trip_id_idx])
                         # save minute of day and week of day into feature matrix
@@ -356,6 +389,50 @@ def mean_haversine_dist (predictions, ground_truth):
         total_dist += dist
     mean = total_dist/n_entries
     return (mean)
+
+def RMSLE (predictions, ground_truth):
+    n_entries = predictions.shape[0]
+    assert(n_entries == ground_truth.shape[0])
+    total_log_time = 0
+    for i in xrange(n_entries):
+        t1 = predictions[i,2]
+        t2 = ground_truth[i,2]
+        total_log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
+    mean = total_log_time/n_entries
+    return math.sqrt(mean)
+
+def adjust_predict_time(data,predictions,ground_truth=None):
+    n_entries = data.shape[0]
+    assert(n_entries == predictions.shape[0])
+    for i in xrange(n_entries):
+        entry = data[i]
+        air_distance, land_distance = get_trip_stats(entry)
+        n_coordinates = get_n_coordinates(entry)
+        time_so_far = TIME_STEP * (n_coordinates-1)
+        if time_so_far>0:
+            bird_speed_so_far = air_distance/time_so_far
+        else:
+            bird_speed_so_far = 0.01
+        bird_speed_so_far = max(0.0025,bird_speed_so_far)
+        bird_speed_so_far = min(0.02,bird_speed_so_far)
+        print "speed=%f km/s" % bird_speed_so_far
+        n_features = get_n_features(n_coordinates)
+        end_lng = entry[n_features - 2]
+        end_lat = entry[n_features - 1]
+        end_point = [end_lng, end_lat]
+        prediction_lng = predictions[i][0]
+        prediction_lat = predictions[i][1]
+        prediction_point = [prediction_lng,prediction_lat]
+        remaining_dist_prediction = HaversineDistance(end_point, prediction_point)
+        remaining_time_prediction = remaining_dist_prediction/bird_speed_so_far
+        prediction = time_so_far+remaining_time_prediction
+        print "time_so_far=%f dist_so_far=%f remaining_dist=%f remaining time=%f prediction=%f gt=%f" % (time_so_far,
+                                                                                                   air_distance,
+                                                                                                   remaining_dist_prediction,
+                                                                                                   remaining_time_prediction,
+                                                                                                   prediction,
+                                                                                                   ground_truth[i,2] if ground_truth is not None else -1)
+        predictions[i,2] = prediction
 
 if __name__ == "__main__":
     n_entries = 1000
