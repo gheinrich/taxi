@@ -11,6 +11,9 @@ import numpy
 import myutils
 from sklearn.cross_validation import train_test_split
 from sklearn import preprocessing
+import affinity
+import multiprocessing
+from sklearn.externals import joblib
 
 #import pylab
 
@@ -20,6 +23,15 @@ import theano.tensor as T
 import scipy.io.wavfile as wv
 
 SINGLE_OUTPUT=False
+
+THEANO_DEBUG_MODE = False
+if THEANO_DEBUG_MODE:
+    THEANO_FUNCTION_MODE = 'DebugMode'
+    #THEANO_OPTIMIZER = 'None'
+    THEANO_OPTIMIZER = 'fast_run'
+else:
+    THEANO_FUNCTION_MODE = 'FAST_RUN'
+    THEANO_OPTIMIZER = 'fast_run'
 
 class HiddenLayer(object):
     def __init__(self, rng, input, n_in, n_out, W=None, b=None,
@@ -158,11 +170,13 @@ class MLP(object):
                 input_size = n_in
                 layer_input = input
             else:
-                input_size = n_hidden[i]
+                input_size = n_hidden[i-1]
                 layer_input = self.hidden_layers[-1].output
 
+            output_size = n_hidden[i]
+
             hidden_layer = HiddenLayer(rng=rng, input=layer_input,
-                                       n_in=input_size, n_out=n_hidden[i],
+                                       n_in=input_size, n_out=output_size,
                                        activation=ReLU)
 
             self.hidden_layers.append(hidden_layer)
@@ -248,9 +262,9 @@ class logs(object):
         pass
 
 
-def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
+def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.001,
              n_epochs=1000, batch_size=20,
-             n_hidden=500, output_folder='output'):
+             n_hidden=500):
     """
     Demonstrate stochastic gradient descent optimization for a multilayer
     perceptron
@@ -293,13 +307,14 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
         target = target[:,0]
     else:
         target = target[:,:2]
-    
+
     # normalize
     data_scaler = preprocessing.StandardScaler().fit(data)
     data_std = data_scaler.transform(data)
     target_scaler = preprocessing.StandardScaler().fit(target)
     target_std = target_scaler.transform(target)
-    
+    print "target_std=%s" % str(target_scaler.std_)
+
 
     print "splitting data into training/test/validation sets..."
     ratio_test = 0.125
@@ -320,10 +335,19 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
     test_set_y = theano.shared(target_test)
 
     # File management
-    if not os.path.isdir(output_folder):
-        os.makedirs(output_folder)
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
 
-    logfile = logs(os.path.join(output_folder, 'results.txt'), 'a')
+    # save scalers
+    model_name = "%s/x_scaler_%d.pkl" % (directory, n_coordinates)
+    print "saving x scaler model into %s" % model_name
+    joblib.dump(data_scaler, model_name)
+    model_name = "%s/y_scaler_%d.pkl" % (directory, n_coordinates)
+    print "saving x scaler model into %s" % model_name
+    joblib.dump(target_scaler, model_name)
+
+    logFileName = "results_%d.txt" % n_coordinates
+    logfile = logs(os.path.join(directory, logFileName), 'a')
     logfile.write('\n--------------------------------')
     logfile.write(('%s') % (datetime.datetime.now()))
     logfile.write(('Learning rate (init): %f') % (learning_rate))
@@ -332,7 +356,7 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
     logfile.write(('Epochs: %d') % (n_epochs))
     logfile.write(('Batch size: %d') % (batch_size))
     logfile.write(('Hidden units: %s') % (n_hidden))
-    logfile.write('\n\n\n')
+    logfile.write('\n\n')
 
     # compute number of minibatches for training, validation and testing
     n_train_batches = train_set_x.get_value(borrow=True).shape[0] / batch_size
@@ -368,7 +392,7 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
     # the model plus the regularization terms (L1 and L2); cost is expressed
     # here symbolically
     #cost = regression.errors(y)  + L1_reg * regression.L1 + L2_reg * regression.L2_sqr
-    cost = regression.errors(y)  + L2_reg * regression.L2_sqr
+    cost = regression.errors(y) + L2_reg * regression.L2_sqr
 
     # compiling a Theano function that computes the mistakes that are made
     # by the model on a minibatch
@@ -377,20 +401,20 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
             givens={
                 x: test_set_x[index * batch_size:(index + 1) * batch_size],
                 y: test_set_y[index * batch_size:(index + 1) * batch_size]},
-            mode='DebugMode')
+            mode=THEANO_FUNCTION_MODE)
 
     validate_model = theano.function(inputs=[index],
             outputs=regression.errors(y),
             givens={
                 x: valid_set_x[index * batch_size:(index + 1) * batch_size],
                 y: valid_set_y[index * batch_size:(index + 1) * batch_size]},
-                                     mode='DebugMode')
+                                     mode=THEANO_FUNCTION_MODE)
 
     # compling a Theano function that generates a prediction
     ygen_model = theano.function(inputs=[],
         outputs=regression.outputLayer.y_pred,
         givens={x: test_set_x},
-                                 mode='DebugMode')
+                                 mode=THEANO_FUNCTION_MODE)
 
     # compute the gradient of cost with respect to theta (sotred in params)
     # the resulting gradients will be stored in a list gparams
@@ -408,7 +432,6 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
     #    C = [(a1, b1), (a2, b2), (a3, b3), (a4, b4)]
     for param, gparam in zip(regression.params, gparams):
         updates.append((param, param - lr * gparam))
-    logfile.write(('Updates: %s') % (updates))
 
     # compiling a Theano function `train_model` that returns the cost, but
     # in the same time updates the parameter of the model based on the rules
@@ -418,8 +441,11 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
             givens={
                 x: train_set_x[index * batch_size:(index + 1) * batch_size],
                 y: train_set_y[index * batch_size:(index + 1) * batch_size]},
-                                  mode='DebugMode',on_unused_input='warn')
-    
+                                  mode=THEANO_FUNCTION_MODE,on_unused_input='warn')
+
+    #logfile.write(('train_model graph: %s') % (train_model.maker.fgraph.toposort()))
+
+
     ###############
     # TRAIN MODEL #
     ###############
@@ -435,6 +461,8 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
 
     epoch = 0
     done_looping = False
+
+    model_name = "mlp_%d.pkl" % (n_coordinates)
 
     lr_time = 30
     lr_step = learning_rate / ((train_set_x.get_value(borrow=True).shape[0]*1.0/batch_size)*(n_epochs-lr_time))
@@ -472,17 +500,17 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
 
             # Saving the model set
             logfile.write('... saving model')
-            regression.save_model(save_dir=output_folder)
+            regression.save_model(save_dir=directory, filename=model_name)
 
     # Load the best model
     logfile.write('... loading model')
-    regression.load_model(load_dir=output_folder)
+    regression.load_model(load_dir=directory, filename=model_name)
     test_losses = [test_model(i) for i in xrange(n_test_batches)]
     test_score = numpy.mean(test_losses)
-    
+
     logfile.write(('    test error of best model %f') %
                   (test_score))
-    
+
     # make predictions
     predictions = target_scaler.inverse_transform(ygen_model())
     target = target_scaler.inverse_transform(target_test)
@@ -500,20 +528,56 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
                    os.path.split(__file__)[1] +
                    ' ran for %.2fm' % ((end_time - start_time) / 60.)))
 
-    f = file(os.path.join(output_folder, 'train.npy'), 'wb')
+    f = file(os.path.join(directory, 'train.npy'), 'wb')
     numpy.save(f, train_err)
     f.close()
 
-    f = file(os.path.join(output_folder, 'valid.npy'), 'wb')
+    f = file(os.path.join(directory, 'valid.npy'), 'wb')
     numpy.save(f, valid_err)
     f.close()
 
     del logfile
 
+def gen_commands(options):
+
+    #data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
+    #                                              max_entries = 320,
+    #                                              max_coordinates=400)
+    #
+    #n_test_entries = data_test.shape[0]
+    #
+    #size_list = []
+    #for i in xrange(n_test_entries):
+    #    s = myutils.get_n_coordinates(data_test[i])
+    #    if not (s in size_list):
+    #        size_list.append(s)
+    #size_list.sort()
+
+    model_sizes = [1, 4, 7, 10, 14, 18,
+                   20, 25, 30,
+                   35, 39, 45, 51,
+                   59, 65, 71,
+                   78, 85, 111,
+                   134, 152, 164, 225,
+                   267, 327, 361, 400]
+
+    for size in model_sizes:
+        print "THEANO_FLAGS=device=gpu python deep_mlp.py -t --dir %s -c %d -n %d " % (options.dir,
+                                                                                       size,
+                                                                                       options.n_train)
+
+
+    return 0
+
 
 if __name__ == '__main__':
+    affinity.set_process_affinity_mask(0, 2**multiprocessing.cpu_count()-1)
+
+    t0 = time.time()
+
+    theano.config.floatX = 'float32'
     theano.config.exception_verbosity = 'high'
-    theano.config.optimizer = 'None'
+    theano.config.optimizer = THEANO_OPTIMIZER
 
     parser = OptionParser()
     parser.add_option("-c", "--ncoordinates", dest="n_coordinates", type="int",
@@ -528,6 +592,9 @@ if __name__ == '__main__':
     parser.add_option("-p", "--predict",
                   action="store_true", dest="predict", default=False,
                    help="predict")
+    parser.add_option("-g", "--generate",
+                  action="store_true", dest="gen_commands", default=False,
+                  help="generate train commands")
     parser.add_option("", "--input_train",
                   dest="input_train", default='../data/mytrain.csv',
                   help="input training file")
@@ -539,11 +606,17 @@ if __name__ == '__main__':
 
     # params initialisation
     # (I didn't want to modify the defauls of the function above)
-    batch_size = 32
+    batch_size = 512
     L2_reg = 0.0001
-    n_epochs = 10
-    n_hidden = [100, 100]
+    n_epochs = 200
+    n_hidden = [500, 300, 200, 100]
+    #n_hidden = [100]
 
     if options.train:
         train(options, batch_size=batch_size, n_epochs=n_epochs,
              n_hidden=n_hidden, L2_reg=L2_reg)
+    elif options.gen_commands:
+        gen_commands(options)
+
+    print "Elapsed time: %f" % (time.time() - t0)
+

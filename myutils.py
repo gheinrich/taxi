@@ -235,10 +235,8 @@ def load_predictions(destination_file='../out-destination.csv', time_file=None, 
 
 def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1):
     n_features = get_n_features(n_coordinates)
-    #data=numpy.empty([max_entries,n_features],dtype=numpy.float32)
-    #target=numpy.empty([max_entries,TARGET_LEN],dtype=numpy.float32)
-    data=numpy.zeros([max_entries,n_features])
-    target=numpy.zeros([max_entries,TARGET_LEN])
+    data=numpy.empty([max_entries,n_features],dtype=numpy.float32)
+    target=numpy.empty([max_entries,TARGET_LEN],dtype=numpy.float32)
     first = True
     ids=[]
     step = max(1,int(total_records/max_entries))
