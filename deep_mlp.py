@@ -10,6 +10,7 @@ import datetime
 import numpy
 import myutils
 from sklearn.cross_validation import train_test_split
+from sklearn import preprocessing
 
 #import pylab
 
@@ -18,7 +19,7 @@ import theano.tensor as T
 
 import scipy.io.wavfile as wv
 
-SINGLE_OUTPUT=True
+SINGLE_OUTPUT=False
 
 class HiddenLayer(object):
     def __init__(self, rng, input, n_in, n_out, W=None, b=None,
@@ -292,13 +293,19 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
         target = target[:,0]
     else:
         target = target[:,:2]
-    print "target shape = %s" % target.shape
+    
+    # normalize
+    data_scaler = preprocessing.StandardScaler().fit(data)
+    data_std = data_scaler.transform(data)
+    target_scaler = preprocessing.StandardScaler().fit(target)
+    target_std = target_scaler.transform(target)
+    
 
     print "splitting data into training/test/validation sets..."
-    ratio_test = 0.2
-    ratio_validation = 0.2
-    data_train,data_test,target_train,target_test = train_test_split(data,
-                                                                     target,
+    ratio_test = 0.125
+    ratio_validation = 0.125
+    data_train,data_test,target_train,target_test = train_test_split(data_std,
+                                                                     target_std,
                                                                      test_size=ratio_test+ratio_validation)
     data_valid,data_test,target_valid,target_test = train_test_split(data_test,
                                                                      target_test,
@@ -307,7 +314,6 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
     # convert to theano sensors
     train_set_x = theano.shared(data_train)
     train_set_y = theano.shared(target_train)
-    print "target shape = %s" % train_set_y.type
     valid_set_x = theano.shared(data_valid)
     valid_set_y = theano.shared(target_valid)
     test_set_x = theano.shared(data_test)
@@ -361,9 +367,8 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
     # the cost we minimize during training is the negative log likelihood of
     # the model plus the regularization terms (L1 and L2); cost is expressed
     # here symbolically
-    cost = regression.errors(y) \
-         + L1_reg * regression.L1 \
-         + L2_reg * regression.L2_sqr
+    #cost = regression.errors(y)  + L1_reg * regression.L1 + L2_reg * regression.L2_sqr
+    cost = regression.errors(y)  + L2_reg * regression.L2_sqr
 
     # compiling a Theano function that computes the mistakes that are made
     # by the model on a minibatch
@@ -381,10 +386,10 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
                 y: valid_set_y[index * batch_size:(index + 1) * batch_size]},
                                      mode='DebugMode')
 
-    # compling a Theano function that generates the next sample
-    ygen_model = theano.function(inputs=[previous_samples],
+    # compling a Theano function that generates a prediction
+    ygen_model = theano.function(inputs=[],
         outputs=regression.outputLayer.y_pred,
-        givens={x: previous_samples},
+        givens={x: test_set_x},
                                  mode='DebugMode')
 
     # compute the gradient of cost with respect to theta (sotred in params)
@@ -408,21 +413,13 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
     # compiling a Theano function `train_model` that returns the cost, but
     # in the same time updates the parameter of the model based on the rules
     # defined in `updates`
-    #train_model = theano.function(inputs=[index, lr], outputs=cost,
-    #        updates=updates,
-    #        givens={
-    #            x: train_set_x[index * batch_size:(index + 1) * batch_size],
-    #            y: train_set_y[index * batch_size:(index + 1) * batch_size]},
-    #                              mode='DebugMode',on_unused_input='warn')
-    train_model = theano.function(inputs=[lr], outputs=cost,
+    train_model = theano.function(inputs=[index, lr], outputs=cost,
             updates=updates,
             givens={
-                x: train_set_x,
-                y: train_set_y},
+                x: train_set_x[index * batch_size:(index + 1) * batch_size],
+                y: train_set_y[index * batch_size:(index + 1) * batch_size]},
                                   mode='DebugMode',on_unused_input='warn')
-
-
-
+    
     ###############
     # TRAIN MODEL #
     ###############
@@ -453,8 +450,7 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
             if epoch > lr_time:
                 lr_val = lr_val - lr_step
 
-            train_losses[i] = train_model(numpy.float32(lr_val))
-        print "train losses: %s" % str(train_losses)
+            train_losses[i] = train_model(i, numpy.float32(lr_val))
         this_train_loss = numpy.mean(train_losses)
 
         # validation set
@@ -483,25 +479,15 @@ def train(options, learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001,
     regression.load_model(load_dir=output_folder)
     test_losses = [test_model(i) for i in xrange(n_test_batches)]
     test_score = numpy.mean(test_losses)
-
+    
     logfile.write(('    test error of best model %f') %
                   (test_score))
+    
+    # make predictions
+    predictions = target_scaler.inverse_transform(ygen_model())
+    target = target_scaler.inverse_transform(target_test)
+    print "test mean Haversine distance = %f" % (myutils.mean_haversine_dist(predictions, target))
 
-    # Generate the sentence
-    mean_timit = 0.0035805809921434142
-    std_timit = 542.48824133746177
-
-    logfile.write('... ... Generating')
-
-    y_gen = numpy.zeros(30000)
-    presamples = sentence_x.get_value()
-    for i in xrange(30000):
-        y_gen[i] = numpy.random.normal(ygen_model(presamples.reshape((1, 240))),
-                                       numpy.sqrt(train_err[best_epoch-1]))
-        presamples = numpy.roll(presamples, -1)
-        presamples[-1] = y_gen[i]
-    output = numpy.int16((y_gen+mean_timit)*std_timit)
-    wv.write(os.path.join(output_folder, 'generated_data.wav'), 16000, output)
 
     end_time = time.clock()
 
@@ -555,9 +541,8 @@ if __name__ == '__main__':
     # (I didn't want to modify the defauls of the function above)
     batch_size = 32
     L2_reg = 0.0001
-    n_epochs = 100
-    #n_hidden = [100, 100]
-    n_hidden = [100]
+    n_epochs = 10
+    n_hidden = [100, 100]
 
     if options.train:
         train(options, batch_size=batch_size, n_epochs=n_epochs,
