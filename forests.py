@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import os
 import random
 from operator import itemgetter
+import math
 
 MAX_DIST = 1e6
 
@@ -22,6 +23,75 @@ VISUALIZE = False
 SAVEFIGS = False
 DEFAULT_N_TEST_ENTRIES = 150000
 DISPLAY_PREDICTION_STATS = False
+CV_TEST_SET = True
+
+def fix_predictions(data, predictions,ground_truth=None, airport_dist=4.0):
+
+    n_entries = data.shape[0]
+
+    #min_angle = 60 * math.pi/180
+    #min_dist = 0.25
+    #max_dist = 25.0
+    #n_points = 0
+    #total_diff = 0
+    #for i in xrange(n_entries):
+    #    entry = data[i]
+    #    n_coordinates = myutils.get_n_coordinates(entry)
+    #    n_features = myutils.get_n_features(n_coordinates)
+    #    start_lng = entry[3]
+    #    start_lat = entry[4]
+    #    start_point = numpy.array([start_lng, start_lat])
+    #    end_lng = entry[n_features - 2]
+    #    end_lat = entry[n_features - 1]
+    #    end_point = numpy.array([end_lng, end_lat])
+    #    prediction = numpy.array(predictions[i,:2])
+    #    if myutils.HaversineDistance(end_point,start_point)>min_dist and myutils.HaversineDistance(end_point,prediction)>min_dist and myutils.HaversineDistance(end_point,prediction)<max_dist:
+    #        n_points += 1
+    #        v1 = start_point - end_point
+    #        v2 = prediction - end_point
+    #        angle = math.acos(numpy.dot(v1,v2)/(numpy.linalg.norm(v1)*numpy.linalg.norm(v2)))
+    #        if abs(angle)<min_angle:
+    #            if ground_truth is not None:
+    #                current_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
+    #            predictions[i,:2] = end_point
+    #            if ground_truth is not None:
+    #                new_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
+    #                diff = current_dist - new_dist
+    #                total_diff += diff
+    #                #print "angle = %f, initial dist=%f, new dist=%f (diff = %f) v1=%s v2=%s" % (angle*180/math.pi,current_dist, new_dist, current_dist - new_dist, str(v1), str(v2))
+    #
+    #if ground_truth is not None:
+    #    print "After angle fix: (n_points=%d, avg diff=%f): dist=%f, RMSLE=%f" % (n_points, total_diff/n_points,
+    #                                    myutils.mean_haversine_dist(predictions, ground_truth),
+    #                                     myutils.RMSLE(predictions, ground_truth) )
+    #else:
+    #    print "angle fix: (n_points=%d)" % (n_points)
+
+    #airport = [-8.669475,41.23741]
+    airport = [-8.6702284,41.2371816]
+    
+    n_points = 0
+    total_diff = 0
+    for i in xrange(n_entries):
+        if myutils.HaversineDistance(predictions[i], airport)<airport_dist:
+            n_points += 1
+            if ground_truth is not None:
+                current_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
+                new_dist = myutils.HaversineDistance(airport,ground_truth[i])
+                diff = current_dist - new_dist
+                total_diff += diff
+                #print "close to airport, initial dist=%f, new dist=%f (diff = %f) gt=%s" % (current_dist, new_dist, diff, str(ground_truth[i]))
+            predictions[i,:2] = airport
+
+    if ground_truth is not None:
+        if n_points>0:
+            avg_diff = total_diff/n_points
+        else:
+            avg_diff=0
+        print "After airport fix (n_points=%d, avg diff=%f): dist=%f, RMSLE=%f" % (n_points, avg_diff, myutils.mean_haversine_dist(predictions, ground_truth),
+                                         myutils.RMSLE(predictions, ground_truth) )
+    else:
+        print "Airport fix (n_points=%d)" % (n_points)
 
 def get_model_id(model_sizes, n_coordinates):
     model = 0
@@ -157,11 +227,18 @@ def predict(options):
                                                   max_coordinates=500,
                                                   skip_records=0,
                                                   total_records=-1)
-        data_test,ground_truth,ids_test = myutils.make_test_data_dense(data,
-                                                                       target,
-                                                                       ids,
-                                                                       n_entries=n_test_entries,
-                                                                       randomize = False)
+
+        if CV_TEST_SET:
+            data_test,ground_truth,ids_test = myutils.make_test_data_cv(data,
+                                                                        target,
+                                                                        ids,
+                                                                        n_entries=n_test_entries)
+        else:
+            data_test,ground_truth,ids_test = myutils.make_test_data_dense(data,
+                                                                           target,
+                                                                           ids,
+                                                                           n_entries=n_test_entries,
+                                                                           randomize = False)
     else:
         data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
                                                   max_entries = 320,
@@ -380,11 +457,22 @@ def train_step2(options):
                                               max_coordinates=500,
                                               skip_records=0,
                                               total_records=-1)
-    data_made,ground_truth,ids_test = myutils.make_test_data_dense(data,
-                                                                   target,
-                                                                   ids,
-                                                                   n_entries=n_test_entries,
-                                                                   randomize = False)
+
+    if CV_TEST_SET:
+        data_made,ground_truth,ids_test = myutils.make_test_data_cv(data,
+                                                                    target,
+                                                                    ids,
+                                                                    n_entries=n_test_entries)
+    else:
+        data_made,ground_truth,ids_test = myutils.make_test_data_dense(data,
+                                                                       target,
+                                                                       ids,
+                                                                       n_entries=n_test_entries,
+                                                                       randomize = False)
+    # how many test entries did we generate?
+    n_test_entries = data_made.shape[0]
+
+    print "average number of coordinates: %f" % myutils.test_set_stats(data_made)
 
     print "loading previous prediction..."
     predictions, prediction_ids = myutils.load_predictions(destination_file=options.input_destination_prediction,
@@ -394,43 +482,53 @@ def train_step2(options):
     print "Average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions, ground_truth),
                                          myutils.RMSLE(predictions, ground_truth) )
 
-    print "building new feature vectors..."
-    data_nf = myutils.make_2nd_step_features(data_made, predictions)
+    #radii = numpy.linspace(0,10,num=50)
+    #for radius in radii:
+    #    print "radius=%f" % radius
+    #    p = numpy.copy(radius)
+    #    fix_predictions(data_made, predictions, ground_truth, airport_dist=radius)
+    fix_predictions(data_made, predictions, ground_truth, airport_dist=2.85)
 
-    print "splitting set..."
-    [data_train, data_test,
-     data_nf_train, data_nf_test,
-     predictions_train, predictions_test,
-     target_train, target_test] = train_test_split(data_made,
-                                                   data_nf,
-                                                   predictions,
-                                                   ground_truth,
-                                                   test_size=DEFAULT_N_TEST_ENTRIES/4)
-
-    print "Before training: train set average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions_train, target_train),
-                                                                   myutils.RMSLE(predictions_train, target_train))
-    print "Before training: test set average dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions_test, target_test),
-                                                                  myutils.RMSLE(predictions_test, target_test))
-
-    print "building model..."
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=500, n_jobs=-1)
-    model.fit(data_nf_train,target_train)
-    print str(model.feature_importances_)
-
-    model_name = "%s/model_2nd_step.pkl" % directory
-    print "saving model into %s..." % model_name
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    joblib.dump(model, model_name)
-
-    print "computing predictions..."
-    predictions_train_2nd_step = model.predict(data_nf_train)
-    predictions_test_2nd_step = model.predict(data_nf_test)
-
-    print "After training: train set average dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions_train_2nd_step, target_train),
-                                                                myutils.RMSLE(predictions_train_2nd_step, target_train))
-    print "After training: test set average dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions_test_2nd_step, target_test),
-                                                                 myutils.RMSLE(predictions_test_2nd_step, target_test))
+    #print "building new feature vectors..."
+    #data_nf = myutils.make_2nd_step_features(data_made, predictions)
+    #
+    #print "splitting set..."
+    #[data_train, data_test,
+    # data_nf_train, data_nf_test,
+    # predictions_train, predictions_test,
+    # target_train, target_test] = train_test_split(data_made,
+    #                                               data_nf,
+    #                                               predictions,
+    #                                               ground_truth,
+    #                                               test_size=n_test_entries/4)
+    #
+    #print "Before training: train set average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions_train, target_train),
+    #                                                               myutils.RMSLE(predictions_train, target_train))
+    #print "Before training: test set average dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions_test, target_test),
+    #                                                              myutils.RMSLE(predictions_test, target_test))
+    #
+    #print "building model..."
+    #model = sklearn.ensemble.RandomForestRegressor(n_estimators=500, n_jobs=-1)
+    #model.fit(data_nf_train,target_train)
+    #print str(model.feature_importances_)
+    #
+    #model_name = "%s/model_2nd_step.pkl" % directory
+    #print "saving model into %s..." % model_name
+    #if not os.path.exists(directory):
+    #    os.makedirs(directory)
+    #joblib.dump(model, model_name)
+    #
+    #print "computing predictions..."
+    #predictions_train_2nd_step = model.predict(data_nf_train)
+    #predictions_test_2nd_step = model.predict(data_nf_test)
+    #
+    #print "After training: train set average dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions_train_2nd_step, target_train),
+    #                                                            myutils.RMSLE(predictions_train_2nd_step, target_train))
+    #print "After training: test set average dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions_test_2nd_step, target_test),
+    #                                                             myutils.RMSLE(predictions_test_2nd_step, target_test))
+    #
+    #print "trying to post-process predictions..."
+    #fix_predictions(data_test, predictions_test_2nd_step, target_test)
 
 def predict_step2(options):
     directory = options.dir
@@ -441,23 +539,28 @@ def predict_step2(options):
                                                               max_entries = n_test_entries,
                                                               max_coordinates=400)
 
+    print "average number of coordinates: %f" % myutils.test_set_stats(data_test)
+
     print "loading previous prediction..."
     predictions, prediction_ids = myutils.load_predictions(destination_file=options.input_destination_prediction,
                                                            n_entries = n_test_entries)
 
-    print "building new feature vectors..."
-    data = myutils.make_2nd_step_features(data_test, predictions)
+    #print "building new feature vectors..."
+    #data = myutils.make_2nd_step_features(data_test, predictions)
+    #
+    #model_name = "%s/model_2nd_step.pkl" % directory
+    #print "loading 2nd step model '%s'..." % model_name
+    #model = joblib.load(model_name)
+    #
+    #print "making 2nd step predictions..."
+    #predictions_test_2nd_step = model.predict(data)
+    #assert(n_test_entries == predictions_test_2nd_step.shape[0])
+    #
+    #print "making time predictions..."
+    #myutils.adjust_predict_time(data_test, predictions_test_2nd_step)
 
-    model_name = "%s/model_2nd_step.pkl" % directory
-    print "loading 2nd step model '%s'..." % model_name
-    model = joblib.load(model_name)
-
-    print "making 2nd step predictions..."
-    predictions_test_2nd_step = model.predict(data)
-    assert(n_test_entries == predictions_test_2nd_step.shape[0])
-
-    print "making time predictions..."
-    myutils.adjust_predict_time(data_test, predictions_test_2nd_step)
+    fix_predictions(data_test, predictions, ground_truth=None)
+    predictions_test_2nd_step = predictions
 
     print "saving destination predictions..."
     fdest = open('out-destination-2ndstep.csv','w')
@@ -496,7 +599,7 @@ def cluster(options):
     n_clusters = 1000
     km = MiniBatchKMeans(n_clusters=n_clusters, batch_size=5*n_clusters, init='random', n_init=20)
     km.fit(target)
-    
+
     if not os.path.exists(directory):
         os.makedirs(directory)
 

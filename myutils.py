@@ -192,7 +192,7 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
     return data[0:n_entries],target[0:n_entries],ids[0:n_entries]
 
 def load_predictions(destination_file='../out-destination.csv', time_file=None, n_entries=0):
-    predictions=numpy.empty([n_entries,TARGET_LEN])
+    predictions=numpy.zeros([n_entries,TARGET_LEN])
     trip_ids = []
     first = True
     n_parsed = 0
@@ -341,6 +341,41 @@ def make_test_data_dense(data, target, ids, n_entries=100, required_n_coordinate
                 break
     return test_data,ground_truth,test_ids
 
+# this way of making test vectors is meant to replicate the Kaggle test
+# set, i.e. it is taking snapshots at 6pm, 8.30am, 5.45pm, 4am, 2.30pm
+def make_test_data_cv(data, target, ids, n_entries=100):
+    cv_hours = [18, 8.5, 17.75, 4, 14.5]
+
+    data_len = data.shape[0]
+    max_features = data.shape[1]
+    if n_entries>data_len:
+        n_entries = data_len
+    ground_truth=numpy.empty([n_entries,TARGET_LEN])
+    test_data = numpy.zeros([n_entries, max_features])
+    test_ids = [""] * n_entries
+    n_found_entries = 0
+    for i in xrange(data_len):
+        entry = data[i]
+        n_coordinates = get_n_coordinates(entry)
+        hour_start = entry[0]/60.
+        hour_end = hour_start + TIME_STEP*n_coordinates/3600.
+        assert(hour_start >= 0 and hour_start <24)
+        assert(hour_end >= 0)
+        match = False
+        for hour in cv_hours:
+            if hour_start<hour and hour_end>hour:
+                match = True
+                n_snapshot_coordinates = int((hour-hour_start)*3600/TIME_STEP)
+                assert n_snapshot_coordinates < n_coordinates
+        if match:
+            n_features = get_n_features(n_snapshot_coordinates)
+            test_data[n_found_entries,0:n_features] = entry[0:n_features]
+            ground_truth[n_found_entries] = target[i]
+            test_ids[n_found_entries] = ids[i]
+            n_found_entries += 1
+    print "found %d entries for CV" % n_found_entries
+    return test_data[:n_found_entries],ground_truth[:n_found_entries],test_ids[:n_found_entries]
+
 def make_2nd_step_features(data, predictions):
     feature_len = 13
     data_len = data.shape[0]
@@ -397,6 +432,8 @@ def RMSLE (predictions, ground_truth):
     for i in xrange(n_entries):
         t1 = predictions[i,2]
         t2 = ground_truth[i,2]
+        assert (t1>=0)
+        assert (t2>=0)
         total_log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
     mean = total_log_time/n_entries
     return math.sqrt(mean)
@@ -433,6 +470,13 @@ def adjust_predict_time(data,predictions,ground_truth=None):
                                                                                                    prediction,
                                                                                                    ground_truth[i,2] if ground_truth is not None else -1)
         predictions[i,2] = prediction
+
+def test_set_stats(data):
+    n_entries = data.shape[0]
+    total_coordinates = 0.0
+    for i in xrange(n_entries):
+        total_coordinates += get_n_coordinates(data[i])
+    return (total_coordinates/n_entries)
 
 if __name__ == "__main__":
     n_entries = 1000
