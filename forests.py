@@ -334,30 +334,10 @@ def predict(options):
     if MAKE_TEST_SET:
         print "Average haversine distance=%f, RMSLE=%.3f" % (total_dist/n_test_entries, numpy.sqrt(total_log_time/n_test_entries))
 
-    print "writing output file..."
-    # open files for writing
-    fdest = open('out-destination.csv','w')
-    fdest.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
-
-    ftime = open('out-time.csv','w')
-    ftime.write("\"TRIP_ID\",\"TRAVEL_TIME\"\n")
-
-    for i in xrange(n_test_entries):
-        # write result
-        fdest.write("\"" + ids_test[i] + "\",")
-        fdest.write(str(predictions[i,1]))
-        fdest.write(",")
-        fdest.write(str(predictions[i,0]))
-        fdest.write("\n")
-
-        # write result
-        ftime.write("\"" + ids_test[i] + "\",")
-        ftime.write(str(int(predictions[i,2])))
-        ftime.write("\n")
-
-    # close files
-    fdest.close()
-    ftime.close()
+    myutils.save_predictions(predictions,
+                             ids_test,
+                             dest_filename='out-destination.csv',
+                             time_filename='out-time.csv')
 
     if VISUALIZE:
         plt.close("all")
@@ -562,27 +542,10 @@ def predict_step2(options):
     fix_predictions(data_test, predictions, ground_truth=None)
     predictions_test_2nd_step = predictions
 
-    print "saving destination predictions..."
-    fdest = open('out-destination-2ndstep.csv','w')
-    ftime = open('out-time-2ndstep.csv','w')
-    fdest.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
-    ftime.write("\"TRIP_ID\",\"TRAVEL_TIME\"\n")
-    for i in xrange(n_test_entries):
-        # write result
-        fdest.write("\"" + ids_test[i] + "\",")
-        fdest.write(str(predictions_test_2nd_step[i,1]))
-        fdest.write(",")
-        fdest.write(str(predictions_test_2nd_step[i,0]))
-        fdest.write("\n")
-
-        # write result
-        ftime.write("\"" + ids_test[i] + "\",")
-        ftime.write(str(int(predictions_test_2nd_step[i,2])))
-        ftime.write("\n")
-    # close files
-    fdest.close()
-    ftime.close()
-
+    myutils.save_predictions(predictions_test_2nd_step,
+                             ids_test,
+                             dest_filename='out-destination-2ndstep.csv',
+                             time_filename='out-time-2ndstep.csv')
 
 def cluster(options):
     n_coordinates = 1
@@ -606,6 +569,9 @@ def cluster(options):
     model_name = "%s/model_cluster.pkl" % directory
     print "saving model into %s" % model_name
     joblib.dump(km, model_name)
+
+def makecv(options):
+    myutils.write_cv_set(options.input_test, "cvtest.csv")
 
 def main():
     affinity.set_process_affinity_mask(0, 2**multiprocessing.cpu_count()-1)
@@ -658,7 +624,9 @@ def main():
     parser.add_option("", "--cluster",
                   action="store_true", dest="cluster", default=False,
                   help="final destination clustering")
-
+    parser.add_option("", "--makecv",
+                  action="store_true", dest="makecv", default=False,
+                  help="make CV set")
     (options, args) = parser.parse_args()
 
     if options.train:
@@ -679,6 +647,8 @@ def main():
         hypertune(options)
     elif options.cluster:
         cluster(options)
+    elif options.makecv:
+        makecv(options)
     else:
         train_and_test()
 

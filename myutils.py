@@ -19,6 +19,16 @@ METADATA_LEN = 3
 TARGET_LEN = 3
 TIME_STEP = 15
 
+def is_cv_match(hour_start, n_coordinates):
+    cv_hours = [18, 8.5, 17.75, 4, 14.5]
+    margin = 1./60 # 1 minute
+    hour_end = hour_start + TIME_STEP*n_coordinates/3600.
+    for hour in cv_hours:
+        if hour_start<hour and hour_end>hour-margin:
+            n_snapshot_coordinates = min(int((hour-hour_start)*3600/TIME_STEP), n_coordinates)
+            return n_snapshot_coordinates
+    return 0
+
 class VisualizeTrip:
     def __init__(self):
         self.color_index = 0
@@ -233,6 +243,71 @@ def load_predictions(destination_file='../out-destination.csv', time_file=None, 
                     n_parsed += 1
     return predictions, trip_ids
 
+def save_predictions(predictions, ids, dest_filename='out-destination.csv', time_filename='out-time.csv'):
+    n_entries = predictions.shape[0]
+    print "saving %d predictions into %s and %s..." % (n_entries, dest_filename, time_filename)
+    fdest = open(dest_filename,'w')
+    ftime = open(time_filename,'w')
+    fdest.write("\"TRIP_ID\",\"LATITUDE\",\"LONGITUDE\"\n")
+    ftime.write("\"TRIP_ID\",\"TRAVEL_TIME\"\n")
+    for i in xrange(n_entries):
+        # write result
+        fdest.write("\"" + ids[i] + "\",")
+        fdest.write(str(predictions[i,1]))
+        fdest.write(",")
+        fdest.write(str(predictions[i,0]))
+        fdest.write("\n")
+
+        # write result
+        ftime.write("\"" + ids[i] + "\",")
+        ftime.write(str(int(predictions[i,2])))
+        ftime.write("\n")
+    # close files
+    fdest.close()
+    ftime.close()    
+
+#def write_cv_set(input_filename, output_filename, max_entries=50000):
+    #target=numpy.empty([max_entries,TARGET_LEN])
+    #first = True
+    #ids=[]
+    #print "Opening %s for reading..." % input_filename
+    #fin = open(input_filename, 'rb')
+    #print "Opening %s for writing..." % output_filename
+    #fout = open(output_filename, 'w')
+    
+    #n_entries = 0
+    #reader = csv.reader(fin)
+    #n_parsed = 0
+    #for row in reader:
+        #if first:
+            #missing_data_idx = row.index("MISSING_DATA")
+            #polyline_idx = row.index("POLYLINE")
+            #timestamp_idx = row.index("TIMESTAMP")
+            #trip_id_idx = row.index("TRIP_ID")
+            #first = False
+        #else:
+            #if row[missing_data_idx] == "False":
+                #polyline = eval(row[polyline_idx])
+                #polyline_len = len(polyline)
+                #if polyline_len > 0:
+                    #print row
+                    ## save ids
+                    #ids.append(row[trip_id_idx])
+                    ## save minute of day and week of day into feature matrix
+                    #timestamp = eval(row[timestamp_idx])
+                    #dt = datetime.datetime.utcfromtimestamp(timestamp)
+                    #time = dt.hour*60 + dt.minute
+                    ## save end destination into target matrix
+                    #target[n_entries,0:2]=polyline[-1]
+                    ## save total trip time
+                    #target[n_entries,2]=(polyline_len-1) * TIME_STEP
+                    #n_entries = n_entries + 1
+                #if n_entries >= max_entries:
+                    #break
+            
+    #fin.close()
+    #fout.close()
+
 def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1):
     n_features = get_n_features(n_coordinates)
     data=numpy.empty([max_entries,n_features],dtype=numpy.float32)
@@ -344,8 +419,6 @@ def make_test_data_dense(data, target, ids, n_entries=100, required_n_coordinate
 # this way of making test vectors is meant to replicate the Kaggle test
 # set, i.e. it is taking snapshots at 6pm, 8.30am, 5.45pm, 4am, 2.30pm
 def make_test_data_cv(data, target, ids, n_entries=100):
-    cv_hours = [18, 8.5, 17.75, 4, 14.5]
-
     data_len = data.shape[0]
     max_features = data.shape[1]
     if n_entries>data_len:
@@ -358,17 +431,9 @@ def make_test_data_cv(data, target, ids, n_entries=100):
         entry = data[i]
         n_coordinates = get_n_coordinates(entry)
         hour_start = entry[0]/60.
-        hour_end = hour_start + TIME_STEP*n_coordinates/3600.
         assert(hour_start >= 0 and hour_start <24)
-        assert(hour_end >= 0)
-        #print "%f %f" % (hour_start,hour_end)
-        match = False
-        for hour in cv_hours:
-            if hour_start<hour and hour_end>hour:
-                match = True
-                n_snapshot_coordinates = int((hour-hour_start)*3600/TIME_STEP)
-                assert n_snapshot_coordinates < n_coordinates
-        if match:
+        n_snapshot_coordinates = is_cv_match(hour_start, n_coordinates)
+        if n_snapshot_coordinates>0:
             n_features = get_n_features(n_snapshot_coordinates)
             test_data[n_found_entries,0:n_features] = entry[0:n_features]
             ground_truth[n_found_entries] = target[i]
