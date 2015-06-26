@@ -170,7 +170,7 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                         ids.append(row[trip_id_idx])
                         # save minute of day and week of day into feature matrix
                         timestamp = eval(row[timestamp_idx])
-                        dt = datetime.datetime.fromtimestamp(timestamp)
+                        dt = datetime.datetime.utcfromtimestamp(timestamp)
                         time = dt.hour*60 + dt.minute
                         weekday = dt.weekday()
                         metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
@@ -282,7 +282,7 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                         ids.append(row[trip_id_idx])
                         # save minute of day and week of day into feature matrix
                         timestamp = eval(row[timestamp_idx])
-                        dt = datetime.datetime.fromtimestamp(timestamp)
+                        dt = datetime.datetime.utcfromtimestamp(timestamp)
                         time = dt.hour*60 + dt.minute
                         weekday = dt.weekday()
                         metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
@@ -346,15 +346,6 @@ def make_test_data_dense(data, target, ids, n_entries=100, required_n_coordinate
 def make_test_data_cv(data, target, ids, n_entries=100):
     cv_hours = [18, 8.5, 17.75, 4, 14.5]
 
-    # models were trained with datetime.datetime.fromtimestamp(x) while
-    # we need to use datetime.datetime.utcfromtimestamp(x) to compare against
-    # the above cv_hours list
-    t = 1000000 # arbitrary timestamp
-    t_fromtimestamp = datetime.datetime.fromtimestamp(t)
-    t_utctimestamp = datetime.datetime.utcfromtimestamp(t)
-    diff = t_utctimestamp.hour - t_fromtimestamp.hour
-    print "fromtimestamp() to utcfromtimestamp() diff = %d" % diff
-
     data_len = data.shape[0]
     max_features = data.shape[1]
     if n_entries>data_len:
@@ -367,12 +358,10 @@ def make_test_data_cv(data, target, ids, n_entries=100):
         entry = data[i]
         n_coordinates = get_n_coordinates(entry)
         hour_start = entry[0]/60.
-        assert(hour_start >= 0 and hour_start <24)
-        hour_start = (hour_start + diff) % 24
-        if hour_start > 24:
-            hour_start -= 24
         hour_end = hour_start + TIME_STEP*n_coordinates/3600.
+        assert(hour_start >= 0 and hour_start <24)
         assert(hour_end >= 0)
+        #print "%f %f" % (hour_start,hour_end)
         match = False
         for hour in cv_hours:
             if hour_start<hour and hour_end>hour:
