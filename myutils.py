@@ -346,6 +346,15 @@ def make_test_data_dense(data, target, ids, n_entries=100, required_n_coordinate
 def make_test_data_cv(data, target, ids, n_entries=100):
     cv_hours = [18, 8.5, 17.75, 4, 14.5]
 
+    # models were trained with datetime.datetime.fromtimestamp(x) while
+    # we need to use datetime.datetime.utcfromtimestamp(x) to compare against
+    # the above cv_hours list
+    t = 1000000 # arbitrary timestamp
+    t_fromtimestamp = datetime.datetime.fromtimestamp(t)
+    t_utctimestamp = datetime.datetime.utcfromtimestamp(t)
+    diff = t_utctimestamp.hour - t_fromtimestamp.hour
+    print "fromtimestamp() to utcfromtimestamp() diff = %d" % diff
+
     data_len = data.shape[0]
     max_features = data.shape[1]
     if n_entries>data_len:
@@ -358,8 +367,11 @@ def make_test_data_cv(data, target, ids, n_entries=100):
         entry = data[i]
         n_coordinates = get_n_coordinates(entry)
         hour_start = entry[0]/60.
-        hour_end = hour_start + TIME_STEP*n_coordinates/3600.
         assert(hour_start >= 0 and hour_start <24)
+        hour_start = (hour_start + diff) % 24
+        if hour_start > 24:
+            hour_start -= 24
+        hour_end = hour_start + TIME_STEP*n_coordinates/3600.
         assert(hour_end >= 0)
         match = False
         for hour in cv_hours:
@@ -373,7 +385,7 @@ def make_test_data_cv(data, target, ids, n_entries=100):
             ground_truth[n_found_entries] = target[i]
             test_ids[n_found_entries] = ids[i]
             n_found_entries += 1
-    print "found %d entries for CV" % n_found_entries
+    print "found %d entries for CV / %d total entries" % (n_found_entries,data_len)
     return test_data[:n_found_entries],ground_truth[:n_found_entries],test_ids[:n_found_entries]
 
 def make_2nd_step_features(data, predictions):
