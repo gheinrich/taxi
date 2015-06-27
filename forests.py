@@ -18,14 +18,14 @@ import math
 
 MAX_DIST = 1e6
 
-MAKE_TEST_SET = False
+MAKE_TEST_SET = True
 VISUALIZE = False
 SAVEFIGS = False
 DEFAULT_N_TEST_ENTRIES = 150000
 DISPLAY_PREDICTION_STATS = False
 CV_TEST_SET = True
 
-def fix_predictions(data, predictions,ground_truth=None, airport_dist=4.0):
+def fix_predictions(data, predictions,ground_truth=None, findRadii=False):
 
     n_entries = data.shape[0]
 
@@ -67,31 +67,88 @@ def fix_predictions(data, predictions,ground_truth=None, airport_dist=4.0):
     #else:
     #    print "angle fix: (n_points=%d)" % (n_points)
 
-    #airport = [-8.669475,41.23741]
-    airport = [-8.6702284,41.2371816]
-    
-    n_points = 0
-    total_diff = 0
-    for i in xrange(n_entries):
-        if myutils.HaversineDistance(predictions[i], airport)<airport_dist:
-            n_points += 1
-            if ground_truth is not None:
-                current_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
-                new_dist = myutils.HaversineDistance(airport,ground_truth[i])
-                diff = current_dist - new_dist
-                total_diff += diff
-                #print "close to airport, initial dist=%f, new dist=%f (diff = %f) gt=%s" % (current_dist, new_dist, diff, str(ground_truth[i]))
-            predictions[i,:2] = airport
-
-    if ground_truth is not None:
-        if n_points>0:
-            avg_diff = total_diff/n_points
-        else:
-            avg_diff=0
-        print "After airport fix (n_points=%d, avg diff=%f): dist=%f, RMSLE=%f" % (n_points, avg_diff, myutils.mean_haversine_dist(predictions, ground_truth),
-                                         myutils.RMSLE(predictions, ground_truth) )
+    if findRadii:
+        new_predictions = numpy.copy(predictions)
+        
+        PoIs = numpy.array([[ -8.670004,41.23735,57512,3.9727067],
+                [ -8.639204,41.23535, 1117,0.7780032],
+                [ -8.585404,41.14895,41492,0.6666972],
+                [ -8.689204,41.20875, 1873,0.6115095],
+                [ -8.619804,41.12995, 5968,0.5181885],
+                [ -8.622204,41.11855, 1069,0.4575361],
+                [ -8.613804,41.13315, 3658,0.4470308],
+                [ -8.635004,41.13995, 6162,0.4072996],
+                [ -8.575804,41.14315, 4699,0.3856050],
+                [ -8.592004,41.10555,  955,0.3783630],
+                [ -8.654404,41.18175,11928,0.3429440],
+                [ -8.566204,41.17435, 4986,0.3391677],
+                [ -8.691204,41.19495,  854,0.3376988],
+                [ -8.583804,41.16395, 7584,0.3201376],
+                [ -8.688404,41.16755, 1836,0.3154678]]) 
+        
+        PoIs_sorted = PoIs[PoIs[:,2].argsort()]
+        assert (ground_truth is not None)
+        for poi in PoIs_sorted:
+            radii = numpy.linspace(0,5,50)
+            best_diff = 0
+            best_radius = 0
+            for radius in radii[1:]:
+                n_points = 0
+                total_diff = 0
+                for i in xrange(n_entries):
+                    if myutils.HaversineDistance(predictions[i], poi)<radius:
+                        n_points += 1
+                        if ground_truth is not None:
+                            current_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
+                            new_dist = myutils.HaversineDistance(poi,ground_truth[i])
+                            diff = current_dist - new_dist
+                            total_diff += diff
+                            #print "close to poi (<%f), initial dist=%f, new dist=%f (diff = %f) gt=%s" % (radius, current_dist, new_dist, diff, str(ground_truth[i]))
+                        new_predictions[i,:2] = poi[:2]
+                if total_diff > best_diff:
+                    best_radius = radius
+                    best_diff = total_diff
+            print "PoIs %s: best radius=%f (diff=%f)" % (str(poi[:2]), best_radius, best_diff/n_entries)
+            
+        print "After PoIs fix: dist=%f, RMSLE=%f" % ( myutils.mean_haversine_dist(new_predictions, ground_truth),
+                                         myutils.RMSLE(new_predictions, ground_truth) )
     else:
-        print "Airport fix (n_points=%d)" % (n_points)
+        PoIs = [[ -8.691204, 41.19495, 0.102041],
+                [ -8.592004, 41.10555, 0.000000],
+                [ -8.622204, 41.11855, 0.408163],
+                [ -8.639204, 41.23535, 0.204082],
+                [ -8.688404, 41.16755, 0.408163],
+                [ -8.689204, 41.20875, 0.408163],
+                [ -8.613804, 41.13315, 0.204082],
+                [ -8.575804, 41.14315, 0.510204],
+                [ -8.566204, 41.17435, 0.510204],
+                [ -8.619804, 41.12995, 0.408163],
+                [ -8.635004, 41.13995, 0.408163],
+                [ -8.583804, 41.16395, 0.000000],
+                [ -8.654404, 41.18175, 0.408163],
+                [ -8.585404, 41.14895, 0.714286],
+                [ -8.670004, 41.23735, 3.163265]]
+        n_points = 0
+        total_diff = 0
+        for poi in PoIs:          
+            radius = poi[2]
+            for i in xrange(n_entries):
+                if myutils.HaversineDistance(predictions[i], poi)<radius:
+                    n_points += 1
+                    if ground_truth is not None:
+                        current_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
+                        new_dist = myutils.HaversineDistance(poi,ground_truth[i])
+                        diff = current_dist - new_dist
+                        total_diff += diff
+                        #print "close to poi (<%f), initial dist=%f, new dist=%f (diff = %f) gt=%s" % (radius, current_dist, new_dist, diff, str(ground_truth[i]))
+                    predictions[i,:2] = poi[:2]
+
+        if ground_truth is not None:
+            print "After PoIs fix (n_points=%d, diff=%f): dist=%f, RMSLE=%f" % ( n_points, total_diff/n_points, myutils.mean_haversine_dist(predictions, ground_truth),
+                                         myutils.RMSLE(predictions, ground_truth) )
+        else:
+            print "Poi fix (n_points=%d)" % (n_points)
+
 
 def get_model_id(model_sizes, n_coordinates):
     model = 0
@@ -132,6 +189,9 @@ def train(options):
     n_entries = options.n_train
     n_estimators = options.n_estimators
     directory = options.dir
+    
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
     data,target,dummy_ids = myutils.load_data_ncoords(filename = options.input_train,
                                                       max_entries = n_entries,
@@ -139,35 +199,85 @@ def train(options):
                                                       total_records=1e6)
 
     print "splitting data into training/test sets..."
-    n_test_entries = 320
+    n_test_entries = 10000
     data_train,data_test,target_train,target_test = train_test_split(data,
                                                                      target,
                                                                      test_size=n_test_entries)
 
-    print "building model with %d coordinates ..." % n_coordinates
-    model = sklearn.ensemble.RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, oob_score=False)
-    model.fit(data_train,target_train)
+    if not options.noRF:
+        print "building RF model with %d coordinates ..." % n_coordinates
+        model_rf = sklearn.ensemble.RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, oob_score=False)
+        model_rf.fit(data_train,target_train)
 
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+        print "computing RF predictions..."
+        predictions_rf = model_rf.predict(data_test)
+        dist = 0
+        log_time = 0
+        for i in xrange(n_test_entries):
+            p1 = target_test[i]
+            p2 = predictions_rf[i]
+            dist += myutils.HaversineDistance( p1, p2)
+            t1 = target_test[i,2] + (n_coordinates-1)*myutils.TIME_STEP
+            t2 = predictions_rf[i,2] + (n_coordinates-1)*myutils.TIME_STEP
+            log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
+        print "Mean haversine distance: %f, RMSLE=%f" % (dist/n_test_entries, numpy.sqrt(log_time/n_test_entries))
 
-    filename = "%s/model_%d_%d.pkl" % (directory, n_entries, n_coordinates)
-    print "saving model into %s..." % filename
-    joblib.dump(model, filename)
+        filename = "%s/model_%d_%d.pkl" % (directory, n_entries, n_coordinates)
+        print "saving model into %s..." % filename
+        joblib.dump(model_rf, filename)
+    
+    if options.GBRT:
+        print "building longitute GBRT model with %d coordinates..." % n_coordinates
+        n_gbrt = options.n_gbrt_estimators
+        model_lon = sklearn.ensemble.GradientBoostingRegressor(max_leaf_nodes = n_entries/10, n_estimators=n_gbrt)
+        model_lon.fit(data_train,target_train[:,0])
+        filename = "%s/model_gbrt_lon_%d_%d.pkl" % (directory, n_entries, n_coordinates)
+        print "saving model into %s..." % filename
+        joblib.dump(model_lon, filename)
+        
+        print "building latitude GBRT model with %d coordinates..." % n_coordinates
+        model_lat = sklearn.ensemble.GradientBoostingRegressor(max_leaf_nodes = n_entries/10, n_estimators=n_gbrt)
+        model_lat.fit(data_train,target_train[:,1])
+        filename = "%s/model_gbrt_lat_%d_%d.pkl" % (directory, n_entries, n_coordinates)
+        print "saving model into %s..." % filename
+        joblib.dump(model_lat, filename)
+        
+        print "building time GBRT model with %d coordinates..." % n_coordinates
+        model_t = sklearn.ensemble.GradientBoostingRegressor(max_leaf_nodes = n_entries/10, n_estimators=n_gbrt)
+        model_t.fit(data_train,target_train[:,2])
+        filename = "%s/model_gbrt_t_%d_%d.pkl" % (directory, n_entries, n_coordinates)
+        print "saving model into %s..." % filename
+        joblib.dump(model_t, filename)
+        
+        print "computing GBRT predictions..."
+        predictions_gbrt = numpy.zeros([n_test_entries, myutils.TARGET_LEN])
+        predictions_gbrt[:,0] = model_lon.predict(data_test)
+        predictions_gbrt[:,1] = model_lat.predict(data_test)
+        predictions_gbrt[:,2] = model_t.predict(data_test)
+        dist = 0
+        log_time = 0
+        for i in xrange(n_test_entries):
+            p1 = target_test[i]
+            p2 = predictions_gbrt[i]
+            dist += myutils.HaversineDistance( p1, p2)
+            t1 = target_test[i,2] + (n_coordinates-1)*myutils.TIME_STEP
+            t2 = predictions_gbrt[i,2] + (n_coordinates-1)*myutils.TIME_STEP
+            log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
+        print "Mean haversine distance: %f, RMSLE=%f" % (dist/n_test_entries, numpy.sqrt(log_time/n_test_entries))
 
-    print "computing test set predictions..."
-    predictions = model.predict(data_test)
-    dist = 0
-    log_time = 0
-    for i in xrange(n_test_entries):
-        p1 = target_test[i]
-        p2 = predictions[i]
-        dist += myutils.HaversineDistance( p1, p2)
-        t1 = target_test[i,2] + (n_coordinates-1)*myutils.TIME_STEP
-        t2 = predictions[i,2] + (n_coordinates-1)*myutils.TIME_STEP
-        log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
-    print "Mean haversine distance: %f, RMSLE=%f" % (dist/n_test_entries, numpy.sqrt(log_time/n_test_entries))
-
+    if (not options.noRF) and (options.GBRT):
+        print "Averaging predictions..."
+        predictions_avg = (predictions_gbrt + predictions_rf)/2
+        dist = 0
+        log_time = 0
+        for i in xrange(n_test_entries):
+            p1 = target_test[i]
+            p2 = predictions_avg[i]
+            dist += myutils.HaversineDistance( p1, p2)
+            t1 = target_test[i,2] + (n_coordinates-1)*myutils.TIME_STEP
+            t2 = predictions_avg[i,2] + (n_coordinates-1)*myutils.TIME_STEP
+            log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
+        print "Mean haversine distance: %f, RMSLE=%f" % (dist/n_test_entries, numpy.sqrt(log_time/n_test_entries))
 
 def hypertune(options):
     n_coordinates = options.n_coordinates
@@ -373,11 +483,23 @@ def gen_commands(options):
             size_list.append(s)
     size_list.sort()
 
+    if options.GBRT:
+        gbrt = "--GBRT --ngbrtestimators=%d" % options.n_gbrt_estimators
+    else:
+        gbrt = ""
+    
+    if options.noRF:
+        norf = "--noRF"
+    else:
+        norf = ""
+        
     for size in size_list:
-        print "python forests.py --train --dir %s -c %d -n %d -e %d" % (options.dir,
+        print "python forests.py --train --dir %s -c %d -n %d -e %d %s %s " % (options.dir,
                                                                         size,
                                                                         options.n_train,
-                                                                        options.n_estimators)
+                                                                        options.n_estimators,
+                                                                        gbrt,
+                                                                        norf)
 
 
     return 0
@@ -462,12 +584,7 @@ def train_step2(options):
     print "Average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions, ground_truth),
                                          myutils.RMSLE(predictions, ground_truth) )
 
-    #radii = numpy.linspace(0,10,num=50)
-    #for radius in radii:
-    #    print "radius=%f" % radius
-    #    p = numpy.copy(radius)
-    #    fix_predictions(data_made, predictions, ground_truth, airport_dist=radius)
-    fix_predictions(data_made, predictions, ground_truth, airport_dist=2.85)
+    fix_predictions(data_made, predictions, ground_truth)
 
     #print "building new feature vectors..."
     #data_nf = myutils.make_2nd_step_features(data_made, predictions)
@@ -624,9 +741,14 @@ def main():
     parser.add_option("", "--cluster",
                   action="store_true", dest="cluster", default=False,
                   help="final destination clustering")
-    parser.add_option("", "--makecv",
-                  action="store_true", dest="makecv", default=False,
-                  help="make CV set")
+    parser.add_option("", "--noRF",
+                  action="store_true", dest="noRF", default=False,
+                  help="no Random Forest")
+    parser.add_option("", "--GBRT",
+                  action="store_true", dest="GBRT", default=False,
+                  help="Gradient Boosted Regression Tree")
+    parser.add_option("", "--ngbrtestimators", dest="n_gbrt_estimators", type="int",
+                  help="specify number of GBRT estimators", default=100)
     (options, args) = parser.parse_args()
 
     if options.train:
@@ -647,8 +769,6 @@ def main():
         hypertune(options)
     elif options.cluster:
         cluster(options)
-    elif options.makecv:
-        makecv(options)
     else:
         train_and_test()
 

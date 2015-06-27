@@ -440,6 +440,13 @@ def make_test_data_cv(data, target, ids, n_entries=100):
             test_ids[n_found_entries] = ids[i]
             n_found_entries += 1
     print "found %d entries for CV / %d total entries" % (n_found_entries,data_len)
+    
+    #f = open('cvset.txt','w')
+    #f.write("\"TRIP_ID\",\"POLYLINE_LENGTH\"\n")
+    #for i in xrange(n_found_entries):
+    #    f.write("\"%s\",\"%d\"\n" % (test_ids[i], get_n_coordinates(test_data[i])) )
+    #f.close()
+    
     return test_data[:n_found_entries],ground_truth[:n_found_entries],test_ids[:n_found_entries]
 
 def make_2nd_step_features(data, predictions):
