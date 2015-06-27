@@ -15,7 +15,7 @@ import binascii
 
 Record = namedtuple('Record', 'trip_id, origin_call, timestamp,coordinates')
 
-METADATA_LEN = 3
+METADATA_LEN = 8
 TARGET_LEN = 3
 TIME_STEP = 15
 
@@ -105,7 +105,8 @@ def get_trip_stats(entry):
     land_distance = 0
     for i in xrange(1,poly_len):
         land_distance += HaversineDistance(polyline[i], polyline[i-1])
-    return air_distance, land_distance
+    speed_measure = land_distance/poly_len
+    return air_distance, land_distance, speed_measure
 
 def load_data(filename='../data/train.csv', max_entries=100):
     data=[]
@@ -308,6 +309,13 @@ def save_predictions(predictions, ids, dest_filename='out-destination.csv', time
     #fin.close()
     #fout.close()
 
+def represents_int(s):
+    try: 
+        int(s)
+        return True
+    except ValueError:
+        return False
+
 def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinates=20, total_records=-1):
     n_features = get_n_features(n_coordinates)
     data=numpy.empty([max_entries,n_features],dtype=numpy.float32)
@@ -315,9 +323,10 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
     first = True
     ids=[]
     step = max(1,int(total_records/max_entries))
-
     #
     n_rejected=0
+    
+    print "Loading data with %d coordinates and %d metadata" % (n_coordinates, METADATA_LEN)
 
     print "Opening %s..." % filename
     with open(filename, 'rb') as f:
@@ -329,6 +338,7 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
             if first:
                 missing_data_idx = row.index("MISSING_DATA")
                 origin_call_idx = row.index("ORIGIN_CALL")
+                stand_idx = row.index("ORIGIN_STAND")
                 polyline_idx = row.index("POLYLINE")
                 trip_id_idx = row.index("TRIP_ID")
                 timestamp_idx = row.index("TIMESTAMP")
@@ -359,11 +369,41 @@ def load_data_ncoords(filename='../data/train.csv', max_entries=100, n_coordinat
                         timestamp = eval(row[timestamp_idx])
                         dt = datetime.datetime.utcfromtimestamp(timestamp)
                         time = dt.hour*60 + dt.minute
+                        month = dt.month
                         weekday = dt.weekday()
-                        metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
-                        assert METADATA_LEN == len(metadata)
-                        data[n_entries,:METADATA_LEN]=metadata
+                        
+                        # keep only call type C
+                        if represents_int(row[origin_call_idx]):
+                            continue
+                            origin_call = eval(row[origin_call_idx])
+                        else:
+                            origin_call = 0
+                        if represents_int(row[stand_idx]):
+                            continue
+                            origin_stand = eval(row[stand_idx])
+                        else:
+                            origin_stand = 0
+                            
+                        taxi_id = int(eval(row[taxi_id_idx]))
+                        
+                        # save coordinates
                         data[n_entries,METADATA_LEN:n_features] = numpy.ravel(polyline[:n_coordinates])
+                      
+                        # get stats
+                        air_distance, land_distance, speed_measure = get_trip_stats(data[n_entries])
+                        #print "air=%f land=%f speed=%f" % (air_distance, land_distance, speed_measure)
+                        if air_distance>0:
+                            dist_ratio = land_distance/air_distance
+                        else:
+                            dist_ratio = 0
+                        
+                        metadata=[time,weekday,month,
+                                  origin_call, origin_stand, taxi_id,
+                                  dist_ratio, speed_measure]
+                        
+                        # save metadata
+                        data[n_entries,:METADATA_LEN]=metadata
+                        
                         # save end destination into target matrix
                         target[n_entries,0:2]=polyline[-1]
                         # save remaining trip time
