@@ -18,7 +18,7 @@ import math
 
 MAX_DIST = 1e6
 
-MAKE_TEST_SET = False
+MAKE_TEST_SET = True
 VISUALIZE = False
 SAVEFIGS = False
 DEFAULT_N_TEST_ENTRIES = 150000
@@ -70,26 +70,28 @@ def fix_predictions(data, predictions,ground_truth=None, findRadii=False):
     if findRadii:
         new_predictions = numpy.copy(predictions)
         
-        PoIs = numpy.array([[ -8.670004,41.23735,57512,3.9727067],
-                [ -8.639204,41.23535, 1117,0.7780032],
-                [ -8.585404,41.14895,41492,0.6666972],
-                [ -8.689204,41.20875, 1873,0.6115095],
-                [ -8.619804,41.12995, 5968,0.5181885],
-                [ -8.622204,41.11855, 1069,0.4575361],
-                [ -8.613804,41.13315, 3658,0.4470308],
-                [ -8.635004,41.13995, 6162,0.4072996],
-                [ -8.575804,41.14315, 4699,0.3856050],
-                [ -8.592004,41.10555,  955,0.3783630],
-                [ -8.654404,41.18175,11928,0.3429440],
-                [ -8.566204,41.17435, 4986,0.3391677],
-                [ -8.691204,41.19495,  854,0.3376988],
-                [ -8.583804,41.16395, 7584,0.3201376],
-                [ -8.688404,41.16755, 1836,0.3154678]]) 
+        PoIs_in = numpy.array([[-8.6700702383 , 41.2372374113 , 57551 ,  3.9853980226],
+                               [-8.6392450734 , 41.2352520798 , 1123  ,  0.8015774616],
+                               [-8.5853810611 , 41.1489010799 , 41497 ,  0.6673817203],
+                               [-8.6891782384 , 41.208825618  , 1876  ,  0.616149212 ],
+                               [-8.6198240356 , 41.129867372  , 5969  ,  0.5186517291],
+                               [-8.6222218511 , 41.1185072727 , 1071  ,  0.4643102125],
+                               [-8.6137321114 , 41.1332629603 , 3664  ,  0.4513865872],
+                               [-8.6350034654 , 41.1399629178 , 6183  ,  0.4083454977],
+                               [-8.5759057989 , 41.143087217  , 4788  ,  0.4049651032],
+                               [-8.5920084995 , 41.1055389173 , 955   ,  0.3788037772],
+                               [-8.654467468  , 41.1817302333 , 11901 ,  0.3449968659],
+                               [-8.5662229289 , 41.1744146818 , 5003  ,  0.3442417021],
+                               [-8.6912356773 , 41.1948618792 , 849   ,  0.3431452011],
+                               [-8.5838467866 , 41.1640426139 , 7556  ,  0.3216473446],
+                               [-8.688404     , 41.167548     , 1836  ,  0.3154678223 ]])
         
-        PoIs_sorted = PoIs[PoIs[:,2].argsort()]
+        PoIs_sorted = PoIs_in[PoIs_in[:,2].argsort()]
+        
+        PoIs = []
         assert (ground_truth is not None)
         for poi in PoIs_sorted:
-            radii = numpy.linspace(0,5,50)
+            radii = numpy.linspace(0,5,101)
             best_diff = 0
             best_radius = 0
             for radius in radii[1:]:
@@ -108,10 +110,10 @@ def fix_predictions(data, predictions,ground_truth=None, findRadii=False):
                 if total_diff > best_diff:
                     best_radius = radius
                     best_diff = total_diff
+            PoIs.append([poi[0], poi[1], best_radius])
             print "PoIs %s: best radius=%f (diff=%f)" % (str(poi[:2]), best_radius, best_diff/n_entries)
-            
-        print "After PoIs fix: dist=%f, RMSLE=%f" % ( myutils.mean_haversine_dist(new_predictions, ground_truth),
-                                         myutils.RMSLE(new_predictions, ground_truth) )
+        print "PoIs=%s" % str(PoIs)
+        
     else:
         PoIs = [[ -8.691204, 41.19495, 0.102041],
                 [ -8.592004, 41.10555, 0.000000],
@@ -128,26 +130,27 @@ def fix_predictions(data, predictions,ground_truth=None, findRadii=False):
                 [ -8.654404, 41.18175, 0.408163],
                 [ -8.585404, 41.14895, 0.714286],
                 [ -8.670004, 41.23735, 3.163265]]
-        n_points = 0
-        total_diff = 0
-        for poi in PoIs:          
-            radius = poi[2]
-            for i in xrange(n_entries):
-                if myutils.HaversineDistance(predictions[i], poi)<radius:
-                    n_points += 1
-                    if ground_truth is not None:
-                        current_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
-                        new_dist = myutils.HaversineDistance(poi,ground_truth[i])
-                        diff = current_dist - new_dist
-                        total_diff += diff
-                        #print "close to poi (<%f), initial dist=%f, new dist=%f (diff = %f) gt=%s" % (radius, current_dist, new_dist, diff, str(ground_truth[i]))
-                    predictions[i,:2] = poi[:2]
+        
+    n_points = 0
+    total_diff = 0
+    for poi in PoIs:          
+        radius = poi[2]
+        for i in xrange(n_entries):
+            if myutils.HaversineDistance(predictions[i], poi)<radius:
+                n_points += 1
+                if ground_truth is not None:
+                    current_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
+                    new_dist = myutils.HaversineDistance(poi,ground_truth[i])
+                    diff = current_dist - new_dist
+                    total_diff += diff
+                    #print "close to poi (<%f), initial dist=%f, new dist=%f (diff = %f) gt=%s" % (radius, current_dist, new_dist, diff, str(ground_truth[i]))
+                predictions[i,:2] = poi[:2]
 
-        if ground_truth is not None:
-            print "After PoIs fix (n_points=%d, diff=%f): dist=%f, RMSLE=%f" % ( n_points, total_diff/n_points, myutils.mean_haversine_dist(predictions, ground_truth),
-                                         myutils.RMSLE(predictions, ground_truth) )
-        else:
-            print "Poi fix (n_points=%d)" % (n_points)
+    if ground_truth is not None:
+        print "After PoIs fix (n_points=%d, diff=%f): dist=%f, RMSLE=%f" % ( n_points, total_diff/n_points, myutils.mean_haversine_dist(predictions, ground_truth),
+                                     myutils.RMSLE(predictions, ground_truth) )
+    else:
+        print "Poi fix (n_points=%d)" % (n_points)
 
 def get_model_filename(options, n_coordinates):
     assert not (options.noRF and options.GBRT)
@@ -626,6 +629,7 @@ def train_step2(options):
                                                            time_file=options.input_time_prediction,
                                                            n_entries = n_test_entries)
 
+    print "mean gt=%s" % (str(numpy.mean( ground_truth[:,2]  ))  )
     diff = ground_truth - predictions
     print "min=%s mean=%s max=%s" % (str(numpy.min(diff,axis=0)), str(numpy.mean(diff,axis=0)), str(numpy.max(diff,axis=0))  )
 
@@ -641,14 +645,12 @@ def train_step2(options):
     
     model_ransac.fit(predictions[:n_subset,2:3], ground_truth[:n_subset,2])
     predictions_ransac[:,2:3] = model_ransac.predict(predictions[n_subset:,2:3])
-    print( model_ransac.estimator_.coef_)
+    print "coefs: %s intercept:%s" % (str( model_ransac.estimator_.coef_), str(model_ransac.estimator_.intercept_) )
     print "After RANSAC: dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions_ransac, ground_truth[n_subset:]),
                                          myutils.RMSLE(predictions_ransac, ground_truth[n_subset:]) )
-
     
     
-
-    fix_predictions(data_made, predictions, ground_truth)
+    fix_predictions(data_made, predictions, ground_truth, findRadii=False)
 
     #print "building new feature vectors..."
     #data_nf = myutils.make_2nd_step_features(data_made, predictions)
