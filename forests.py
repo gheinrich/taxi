@@ -149,7 +149,31 @@ def fix_predictions(data, predictions,ground_truth=None, findRadii=False):
         else:
             print "Poi fix (n_points=%d)" % (n_points)
 
+def get_model_filename(options, n_coordinates):
+    assert not (options.noRF and options.GBRT)
+    if options.GBRT:
+        filename_lon = "%s/model_gbrt_lon_%d_%d.pkl" % (options.dir, options.n_train, n_coordinates)
+        filename_lat = "%s/model_gbrt_lat_%d_%d.pkl" % (options.dir, options.n_train, n_coordinates)
+        filename_t = "%s/model_gbrt_t_%d_%d.pkl" % (options.dir, options.n_train, n_coordinates)
+        return [filename_lon, filename_lat, filename_t]
+    else:
+        filename = "%s/model_%d_%d.pkl" % (options.dir, options.n_train, n_coordinates)
+        return [filename]
 
+def available_models(options, model_sizes):
+    avail = []
+    for size in model_sizes:
+        found = True
+        for f in get_model_filename(options, size):
+            if not os.path.isfile(f):
+                print "%s missing, skipping model %d" % (f, size)
+                found = False
+                break
+        if found:
+            avail.append(size)
+    print "model list: %s" % str(avail)
+    return avail
+    
 def get_model_id(model_sizes, n_coordinates):
     model = 0
     for j in xrange(len(model_sizes)):
@@ -199,10 +223,12 @@ def train(options):
                                                       total_records=1e6)
 
     print "splitting data into training/test sets..."
-    n_test_entries = 10000
+    ratio_test_entries = 0.05
     data_train,data_test,target_train,target_test = train_test_split(data,
                                                                      target,
-                                                                     test_size=n_test_entries)
+                                                                     test_size=ratio_test_entries)
+    n_test_entries = data_test.shape[0]
+    
 
     if not options.noRF:
         print "building RF model with %d coordinates ..." % n_coordinates
@@ -318,14 +344,19 @@ def hypertune(options):
 def predict(options):
     directory = options.dir
 
-    model_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-                   19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
-                   35, 36, 37, 38, 39, 42, 43, 44, 45, 46, 47, 48, 49, 51,
-                   52, 53, 54, 57, 59, 60, 62, 63, 64, 65, 66, 67, 68, 70, 71, 72,
-                   73, 76, 78, 79, 80, 83, 84, 85, 94, 97, 107, 110, 111, 112, 115,
-                   134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
-                   267, 327, 361, 369, 387, 400]
+    all_model_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+                       19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+                       35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 51,
+                       52, 53, 54, 57, 59, 60, 62, 63, 64, 65, 66, 67, 68, 70, 71, 72,
+                       73, 76, 78, 79, 80, 83, 84, 85, 94, 97, 107, 110, 111, 112, 115,
+                       134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
+                       267, 327, 361, 369, 387, 400]
     #model_sizes = [1, 51, 107]
+    
+    
+    model_sizes = available_models(options, all_model_sizes)
+    # we must have a model for the shortest trips
+    assert (1 in model_sizes)
 
     print "loading test data..."
     if MAKE_TEST_SET:
@@ -363,8 +394,7 @@ def predict(options):
     predictions = numpy.zeros([n_test_entries,myutils.TARGET_LEN])
     visu = myutils.VisualizeTrip()
     for model_size in model_sizes:
-        model_name = "%s/model_%d_%d.pkl" % (directory, options.n_train, model_size)
-
+        
         entry_indices = []
         for i in xrange(n_test_entries):
             n_coordinates = myutils.get_n_coordinates(data_test[i])
@@ -375,9 +405,7 @@ def predict(options):
                 entry_indices.append(i)
 
         if len(entry_indices)>0:
-            print "Opening model %s" % model_name
-            model = joblib.load(model_name)
-
+            
             # build input data
             n_features = myutils.get_n_features(model_size)
 
@@ -385,9 +413,28 @@ def predict(options):
             X = numpy.zeros([len(entry_indices),n_features])
             for idx,val in enumerate(entry_indices):
                 X[idx] = data_test[val,0:n_features]
-
-            # predict all test samples for this model
-            Y = model.predict(X)
+                
+            # open model and predict
+            fname = get_model_filename(options, model_size)                
+            if options.GBRT:
+                print "Opening GBRT model %s" % fname[0]
+                model_lon = joblib.load(fname[0])
+                print "Opening GBRT model %s" % fname[1]
+                model_lat = joblib.load(fname[1])
+                print "Opening GBRT model %s" % fname[2]
+                model_t = joblib.load(fname[2])
+                
+                Y = numpy.zeros([len(entry_indices),myutils.TARGET_LEN])
+                
+                Y[:,0] = model_lon.predict(X)
+                Y[:,1] = model_lat.predict(X)
+                Y[:,2] = model_t.predict(X)
+            else:
+                print "Opening RF model %s" % fname[0]
+                model = joblib.load(fname[0])
+                # predict all test samples for this model
+                Y = model.predict(X)
+                
             for idx,val in enumerate(entry_indices):
                 predictions[val,0:2] = Y[idx,0:2]
                 if Y[idx,2]<=0:
@@ -442,8 +489,9 @@ def predict(options):
                                                                                            dist_string,
                                                                                            time_diff_string)
     if MAKE_TEST_SET:
-        print "Average haversine distance=%f, RMSLE=%.3f" % (total_dist/n_test_entries, numpy.sqrt(total_log_time/n_test_entries))
-
+        print "Average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions, ground_truth),
+                                         myutils.RMSLE(predictions, ground_truth) )
+        
     myutils.save_predictions(predictions,
                              ids_test,
                              dest_filename='out-destination.csv',
