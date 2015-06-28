@@ -636,18 +636,18 @@ def train_step2(options):
     print "Average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions, ground_truth),
                                          myutils.RMSLE(predictions, ground_truth) )
 
-    model_ransac = sklearn.linear_model.RANSACRegressor(sklearn.linear_model.LinearRegression())
-    n_subset = int(n_test_entries/2)
-    predictions_ransac = numpy.zeros([n_test_entries-n_subset,myutils.TARGET_LEN])
+    #model_ransac = sklearn.linear_model.RANSACRegressor(sklearn.linear_model.LinearRegression())
+    #n_subset = int(n_test_entries/2)
+    #predictions_ransac = numpy.zeros([n_test_entries-n_subset,myutils.TARGET_LEN])
     
-    print predictions[:n_subset,2].shape
-    print ground_truth[:n_subset,2].shape
+    #print predictions[:n_subset,2].shape
+    #print ground_truth[:n_subset,2].shape
     
-    model_ransac.fit(predictions[:n_subset,2:3], ground_truth[:n_subset,2])
-    predictions_ransac[:,2:3] = model_ransac.predict(predictions[n_subset:,2:3])
-    print "coefs: %s intercept:%s" % (str( model_ransac.estimator_.coef_), str(model_ransac.estimator_.intercept_) )
-    print "After RANSAC: dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions_ransac, ground_truth[n_subset:]),
-                                         myutils.RMSLE(predictions_ransac, ground_truth[n_subset:]) )
+    #model_ransac.fit(predictions[:n_subset,2:3], ground_truth[:n_subset,2])
+    #predictions_ransac[:,2:3] = model_ransac.predict(predictions[n_subset:,2:3])
+    #print "coefs: %s intercept:%s" % (str( model_ransac.estimator_.coef_), str(model_ransac.estimator_.intercept_) )
+    #print "After RANSAC: dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions_ransac, ground_truth[n_subset:]),
+                                         #myutils.RMSLE(predictions_ransac, ground_truth[n_subset:]) )
     
     
     fix_predictions(data_made, predictions, ground_truth, findRadii=False)
