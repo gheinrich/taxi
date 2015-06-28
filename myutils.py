@@ -203,26 +203,28 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
 
 def load_predictions(destination_file='../out-destination.csv', time_file=None, n_entries=0):
     predictions=numpy.zeros([n_entries,TARGET_LEN])
-    trip_ids = []
+    trip_ids = [""] * n_entries
     first = True
     n_parsed = 0
-    print "Opening %s..." % destination_file
-    with open(destination_file, 'rb') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if first:
-                trip_id_idx = row.index("TRIP_ID")
-                latitude_idx = row.index("LATITUDE")
-                longitude_idx = row.index("LONGITUDE")
-                first = False
-            else:
-                assert(n_parsed < n_entries)
-                prediction = [eval(row[longitude_idx]),eval(row[latitude_idx])]
-                trip_id = row[trip_id_idx]
-                predictions[n_parsed,0:2]=prediction
-                trip_ids.append(trip_id)
-                n_parsed += 1
-    assert(n_parsed == n_entries)
+    
+    if destination_file is not None:
+        print "Opening %s..." % destination_file
+        with open(destination_file, 'rb') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if first:
+                    trip_id_idx = row.index("TRIP_ID")
+                    latitude_idx = row.index("LATITUDE")
+                    longitude_idx = row.index("LONGITUDE")
+                    first = False
+                else:
+                    assert(n_parsed < n_entries)
+                    prediction = [eval(row[longitude_idx]),eval(row[latitude_idx])]
+                    trip_id = row[trip_id_idx]
+                    predictions[n_parsed,0:2]=prediction
+                    trip_ids[n_parsed]=trip_id
+                    n_parsed += 1
+        assert(n_parsed == n_entries)
     if time_file != None:
         n_parsed = 0
         print "Opening %s..." % time_file
@@ -238,7 +240,9 @@ def load_predictions(destination_file='../out-destination.csv', time_file=None, 
                     assert(n_parsed < n_entries)
                     prediction = eval(row[travel_time_idx])
                     trip_id = row[trip_id_idx]
-                    assert(trip_id == trip_ids[n_parsed])
+                    if destination_file is not None:
+                        assert(trip_id == trip_ids[n_parsed])
+                    trip_ids[n_parsed]=trip_id
                     predictions[n_parsed,2]=prediction
                     n_parsed += 1
     return predictions, trip_ids

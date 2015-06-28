@@ -751,8 +751,76 @@ def cluster(options):
     print "saving model into %s" % model_name
     joblib.dump(km, model_name)
 
-def makecv(options):
-    myutils.write_cv_set(options.input_test, "cvtest.csv")
+def merge(options):
+    files = options.merge.split(',')
+    assert len(files)==2
+    
+    if MAKE_TEST_SET:
+        n_test_entries = DEFAULT_N_TEST_ENTRIES
+        n_entries = min(200000, 100 * n_test_entries)
+        data,target,ids = myutils.load_data_dense(filename=options.input_test,
+                                                max_entries = n_entries,
+                                                max_coordinates=500,
+                                                skip_records=0,
+                                                total_records=-1)
+
+        if CV_TEST_SET:
+            data_made,ground_truth,ids_test = myutils.make_test_data_cv(data,
+                                                                        target,
+                                                                        ids,
+                                                                        n_entries=n_test_entries)
+        else:
+            data_made,ground_truth,ids_test = myutils.make_test_data_dense(data,
+                                                                        target,
+                                                                        ids,
+                                                                        n_entries=n_test_entries,
+                                                                        randomize = False)  
+        # how many test entries did we generate?
+        n_test_entries = data_made.shape[0]
+    else:
+        n_test_entries = 320
+        assert options.merge_ratio > 0
+        merge_ratio = options.merge_ratio
+    
+    if "dest" in files[0]:
+        predictions1, prediction1_ids = myutils.load_predictions(destination_file=files[0],
+                                                           n_entries = n_test_entries)
+        predictions2, prediction2_ids = myutils.load_predictions(destination_file=files[1],
+                                                         n_entries = n_test_entries)
+    else:
+        assert "time" in files[0]
+        predictions1, prediction1_ids = myutils.load_predictions(destination_file=None,
+                                                                 time_file=files[0],
+                                                           n_entries = n_test_entries)
+        predictions2, prediction2_ids = myutils.load_predictions(destination_file=None,
+                                                                 time_file=files[1],
+                                                         n_entries = n_test_entries)
+        
+    assert(cmp(prediction1_ids, prediction2_ids)==0)
+    
+    if MAKE_TEST_SET:    
+        print "Prediction #1: dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions1, ground_truth),
+                                                myutils.RMSLE(predictions1, ground_truth))
+        print "Prediction #2: dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions2, ground_truth),
+                                                myutils.RMSLE(predictions2, ground_truth))
+        
+        scores = []
+        ratios, step = numpy.linspace(0,1,51,retstep=True)
+        for ratio in ratios:
+            predictions_merged = (ratio * predictions1 + (1-ratio) * predictions2)
+            dist = myutils.mean_haversine_dist(predictions_merged, ground_truth)
+            RMSLE = myutils.RMSLE(predictions_merged, ground_truth)
+            scores.append(dist+RMSLE)
+            print "Merged Prediction: dist=%f RMSLE=%f" % (dist, RMSLE)
+        merge_ratio = numpy.argmin(scores)*step
+        print "Best ratio = %f" % (merge_ratio)
+        
+    merged_prediction = (merge_ratio * predictions1 + (1-merge_ratio) * predictions2)
+    
+    myutils.save_predictions(merged_prediction,
+                             prediction1_ids,
+                             dest_filename='out-destination-merged.csv',
+                             time_filename='out-time-merged.csv')
 
 def main():
     affinity.set_process_affinity_mask(0, 2**multiprocessing.cpu_count()-1)
@@ -811,6 +879,12 @@ def main():
     parser.add_option("", "--GBRT",
                   action="store_true", dest="GBRT", default=False,
                   help="Gradient Boosted Regression Tree")
+    parser.add_option("", "--merge",
+                  dest="merge", default=None,
+                  help="merge two predictions")
+    parser.add_option("", "--mergeratio",
+                  dest="merge_ratio", default=0.0,
+                  help="merge ratio")
     parser.add_option("", "--ngbrtestimators", dest="n_gbrt_estimators", type="int",
                   help="specify number of GBRT estimators", default=100)
     (options, args) = parser.parse_args()
@@ -831,6 +905,8 @@ def main():
         predict_step2(options)
     elif options.hypertune:
         hypertune(options)
+    elif options.merge is not None:
+        merge(options)
     elif options.cluster:
         cluster(options)
     else:
