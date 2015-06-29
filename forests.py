@@ -25,47 +25,54 @@ DEFAULT_N_TEST_ENTRIES = 150000
 DISPLAY_PREDICTION_STATS = False
 CV_TEST_SET = True
 
-def fix_predictions(data, predictions,ground_truth=None, findRadii=False):
+def fix_predictions(data, predictions,ground_truth=None, findRadii=False, findAngle=False):
 
     n_entries = data.shape[0]
 
-    #min_angle = 60 * math.pi/180
-    #min_dist = 0.25
-    #max_dist = 25.0
-    #n_points = 0
-    #total_diff = 0
-    #for i in xrange(n_entries):
-    #    entry = data[i]
-    #    n_coordinates = myutils.get_n_coordinates(entry)
-    #    n_features = myutils.get_n_features(n_coordinates)
-    #    start_lng = entry[3]
-    #    start_lat = entry[4]
-    #    start_point = numpy.array([start_lng, start_lat])
-    #    end_lng = entry[n_features - 2]
-    #    end_lat = entry[n_features - 1]
-    #    end_point = numpy.array([end_lng, end_lat])
-    #    prediction = numpy.array(predictions[i,:2])
-    #    if myutils.HaversineDistance(end_point,start_point)>min_dist and myutils.HaversineDistance(end_point,prediction)>min_dist and myutils.HaversineDistance(end_point,prediction)<max_dist:
-    #        n_points += 1
-    #        v1 = start_point - end_point
-    #        v2 = prediction - end_point
-    #        angle = math.acos(numpy.dot(v1,v2)/(numpy.linalg.norm(v1)*numpy.linalg.norm(v2)))
-    #        if abs(angle)<min_angle:
-    #            if ground_truth is not None:
-    #                current_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
-    #            predictions[i,:2] = end_point
-    #            if ground_truth is not None:
-    #                new_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
-    #                diff = current_dist - new_dist
-    #                total_diff += diff
-    #                #print "angle = %f, initial dist=%f, new dist=%f (diff = %f) v1=%s v2=%s" % (angle*180/math.pi,current_dist, new_dist, current_dist - new_dist, str(v1), str(v2))
-    #
-    #if ground_truth is not None:
-    #    print "After angle fix: (n_points=%d, avg diff=%f): dist=%f, RMSLE=%f" % (n_points, total_diff/n_points,
-    #                                    myutils.mean_haversine_dist(predictions, ground_truth),
-    #                                     myutils.RMSLE(predictions, ground_truth) )
-    #else:
-    #    print "angle fix: (n_points=%d)" % (n_points)
+    #findAngle=True
+    if findAngle:
+        angles_deg = numpy.linspace(5,90,50)
+    else:
+        angles_deg = [70]
+    for angle_deg in angles_deg:
+        min_angle = angle_deg * math.pi/180
+        min_dist = 0.25
+        max_dist = 25.0
+        n_points = 0
+        total_diff = 0
+        for i in xrange(n_entries):
+            entry = data[i]
+            n_coordinates = myutils.get_n_coordinates(entry)
+            n_features = myutils.get_n_features(n_coordinates)
+            start_lng = entry[3]
+            start_lat = entry[4]
+            start_point = numpy.array([start_lng, start_lat])
+            end_lng = entry[n_features - 2]
+            end_lat = entry[n_features - 1]
+            end_point = numpy.array([end_lng, end_lat])
+            prediction = numpy.array(predictions[i,:2])
+            if myutils.HaversineDistance(end_point,start_point)>min_dist and myutils.HaversineDistance(end_point,prediction)>min_dist and myutils.HaversineDistance(end_point,prediction)<max_dist:
+                v1 = start_point - end_point
+                v2 = prediction - end_point
+                angle = math.acos(numpy.dot(v1,v2)/(numpy.linalg.norm(v1)*numpy.linalg.norm(v2)))
+                if abs(angle)<min_angle:
+                    if ground_truth is not None:
+                        current_dist = myutils.HaversineDistance(predictions[i],ground_truth[i])
+                        if not findAngle:
+                            predictions[i,:2] = end_point
+                        new_dist = myutils.HaversineDistance(end_point,ground_truth[i])
+                        diff = current_dist - new_dist
+                        total_diff += diff
+                        n_points += 1
+                        #print "angle = %f, initial dist=%f, new dist=%f (diff = %f) v1=%s v2=%s" % (angle*180/math.pi,current_dist, new_dist, current_dist - new_dist, str(v1), str(v2))
+        print "angle=%f fix: (n_points=%d, avg diff=%f, overall diff=%f)" % (angle_deg, n_points, total_diff/n_points, total_diff/n_entries)
+
+    if ground_truth is not None:
+        print "After angl fix: (angle n_points=%d, avg diff=%f): dist=%f, RMSLE=%f" % ( n_points, total_diff/n_points,
+                                            myutils.mean_haversine_dist(predictions, ground_truth),
+                                                myutils.RMSLE(predictions, ground_truth) )
+    else:
+        print "angle=%d fix: (n_points=%d)" % (angle, n_points)
 
     if findRadii:
         new_predictions = numpy.copy(predictions)
@@ -781,8 +788,10 @@ def merge(options):
         n_test_entries = data_made.shape[0]
     else:
         n_test_entries = 320
-        assert options.merge_ratio > 0
-        merge_ratio = options.merge_ratio
+        assert options.merge_ratio != ""
+        merge_ratio = eval(options.merge_ratio)
+    
+    print "Merge ratio = %f" % merge_ratio
     
     if "dest" in files[0]:
         predictions1, prediction1_ids = myutils.load_predictions(destination_file=files[0],
@@ -813,12 +822,12 @@ def merge(options):
             dist = myutils.mean_haversine_dist(predictions_merged, ground_truth)
             RMSLE = myutils.RMSLE(predictions_merged, ground_truth)
             scores.append(dist+RMSLE)
-            print "Merged Prediction: dist=%f RMSLE=%f" % (dist, RMSLE)
+            print "[ratio=%f] Merged Prediction: dist=%f RMSLE=%f" % (ratio, dist, RMSLE)
         merge_ratio = numpy.argmin(scores)*step
         print "Best ratio = %f" % (merge_ratio)
         
     merged_prediction = (merge_ratio * predictions1 + (1-merge_ratio) * predictions2)
-    
+        
     myutils.save_predictions(merged_prediction,
                              prediction1_ids,
                              dest_filename='out-destination-merged.csv',
@@ -885,7 +894,7 @@ def main():
                   dest="merge", default=None,
                   help="merge two predictions")
     parser.add_option("", "--mergeratio",
-                  dest="merge_ratio", default=0.0,
+                  dest="merge_ratio", default="",
                   help="merge ratio")
     parser.add_option("", "--ngbrtestimators", dest="n_gbrt_estimators", type="int",
                   help="specify number of GBRT estimators", default=100)
