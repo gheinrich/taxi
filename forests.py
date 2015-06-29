@@ -18,7 +18,7 @@ import math
 
 MAX_DIST = 1e6
 
-MAKE_TEST_SET = False
+MAKE_TEST_SET = True
 VISUALIZE = False
 SAVEFIGS = False
 DEFAULT_N_TEST_ENTRIES = 150000
@@ -439,10 +439,7 @@ def predict(options):
                 predictions[val,0:2] = Y[idx,0:2]
                 if Y[idx,2]<=0:
                     print "!!!! time prediction=%f" % Y[idx,2]
-                if model_size>1:
-                    predictions[val,2] = Y[idx,2] + (model_size-1)*myutils.TIME_STEP
-                else:
-                    predictions[val,2] = 660
+                predictions[val,2] = max(0,Y[idx,2]) + (model_size-1)*myutils.TIME_STEP
 
                 if MAKE_TEST_SET:
                     # compare against ground truth

@@ -21,7 +21,7 @@ TIME_STEP = 15
 
 def is_cv_match(hour_start, n_coordinates):
     cv_hours = [18, 8.5, 17.75, 4, 14.5]
-    margin = 1./60 # 1 minute
+    margin = 0 # 20./3600 # 20 seconds
     hour_end = hour_start + TIME_STEP*n_coordinates/3600.
     for hour in cv_hours:
         if hour_start<hour and hour_end>hour-margin:
@@ -181,7 +181,7 @@ def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinat
                         # save minute of day and week of day into feature matrix
                         timestamp = eval(row[timestamp_idx])
                         dt = datetime.datetime.utcfromtimestamp(timestamp)
-                        time = dt.hour*60 + dt.minute
+                        time = dt.hour*60 + dt.minute + dt.second/60.
                         weekday = dt.weekday()
                         metadata=[time,weekday,int(eval(row[taxi_id_idx]))]
                         assert METADATA_LEN == len(metadata)
