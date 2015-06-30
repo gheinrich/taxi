@@ -332,17 +332,9 @@ def train2(options):
                                               total_records=-1)
     n_entries = data.shape[0]
 
-    if CV_TEST_SET:
-        data_made,ground_truth,ids_test = myutils.make_test_data_cv_alt(data,
-                                                                    target,
-                                                                    ids,
-                                                                    n_entries=n_entries)
-    else:
-        data_made,ground_truth,ids_test = myutils.make_test_data_dense(data,
-                                                                       target,
-                                                                       ids,
-                                                                       n_entries=n_entries,
-                                                                       randomize = False)
+    data_made = myutils.make_alt_features(data,randomize=True)
+    ground_truth = target
+
     # how many test entries did we generate?
     n_test_entries = data_made.shape[0]
     
@@ -356,11 +348,64 @@ def train2(options):
     # now train
     model_rf = sklearn.ensemble.RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, oob_score=False)
     model_rf.fit(data_train,target_train)
+
+    filename = "%s/model_alt.pkl" % (directory)
+    print "saving model into %s..." % filename
+    joblib.dump(model_rf, filename)
     
     # now test
     predictions = model_rf.predict(data_test)
     print "average Haversine distance: %f" % (myutils.mean_haversine_dist(predictions, target_test))
 
+def predict2(options):
+    print "loading test data..."
+    if MAKE_TEST_SET:
+        n_test_entries = DEFAULT_N_TEST_ENTRIES
+        n_entries = min(200000, 100 * n_test_entries)
+
+        data,target,ids = myutils.load_data_dense(filename=options.input_test,
+                                                  max_entries = n_entries,
+                                                  max_coordinates=500,
+                                                  skip_records=0,
+                                                  total_records=-1)
+
+        if CV_TEST_SET:
+            data_test,ground_truth,ids_test = myutils.make_test_data_cv(data,
+                                                                        target,
+                                                                        ids,
+                                                                        n_entries=n_test_entries)
+        else:
+            data_test,ground_truth,ids_test = myutils.make_test_data_dense(data,
+                                                                           target,
+                                                                           ids,
+                                                                           n_entries=n_test_entries,
+                                                                           randomize = False)
+    else:
+        data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
+                                                  max_entries = 320,
+                                                  max_coordinates=400)
+
+    n_test_entries = data_test.shape[0]
+
+    
+    print "making alternative features"
+    data_alt = myutils.make_alt_features(data_test,randomize=False)
+
+    filename = "%s/model_alt.pkl" % (directory)
+    print "Opening GBRT model %s" % filename
+    model = joblib.load(filename)
+
+    print "predicting %d entries..." % n_test_entries
+    predictions = model.predict(data_alt)
+
+    if MAKE_TEST_SET:
+        print "Average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions, ground_truth),
+                                         myutils.RMSLE(predictions, ground_truth) )
+        
+    myutils.save_predictions(predictions,
+                             ids_test,
+                             dest_filename='out-destination.csv',
+                             time_filename='out-time.csv')
 
 def hypertune(options):
     n_coordinates = options.n_coordinates

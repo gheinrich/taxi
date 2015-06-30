@@ -141,8 +141,8 @@ def load_data(filename='../data/train.csv', max_entries=100):
 
 def load_data_dense(filename='../data/train.csv', max_entries=100, max_coordinates=20, skip_records = 0, total_records=-1):
     max_features = get_n_features(max_coordinates)
-    data=numpy.empty([max_entries,max_features])
-    target=numpy.empty([max_entries,TARGET_LEN])
+    data=numpy.empty([max_entries,max_features],dtype=numpy.float32)
+    target=numpy.empty([max_entries,TARGET_LEN],dtype=numpy.float32)
     first = True
     ids=[]
     if total_records>0:
@@ -526,6 +526,40 @@ def make_2nd_step_features(data, predictions):
         data_out[i]= new_entry
         assert(feature_len == len(new_entry))
     return data_out
+
+def make_alt_features(data, randomize=False):
+    feature_len = 8
+    data_len = data.shape[0]
+    data_out = numpy.zeros([data_len, feature_len],dtype=numpy.float32)
+    for i in xrange(data_len):
+        entry = data[i]
+        t = entry[0]
+        weekday = entry[1]
+        taxi_id = entry[2]
+        start_lng = entry[3]
+        start_lat = entry[4]
+        n_coordinates = get_n_coordinates(entry)
+        if randomize:
+            l = min(random.randint(1, n_coordinates),random.randint(1, n_coordinates))
+        else:
+            l = n_coordinates
+        n_features = get_n_features(l)
+        end_lng = entry[n_features - 2]
+        end_lat = entry[n_features - 1]
+        air_distance, land_distance = get_trip_stats(entry)
+        if air_distance>0:
+            dist_ratio = land_distance/air_distance
+        else:
+            dist_ratio = -1
+        lng_direction = end_lng - start_lng
+        lat_direction = end_lat - start_lat
+        new_entry = [weekday, t, taxi_id, start_lng, start_lat,
+                     end_lng, end_lat,
+                     dist_ratio]
+        data_out[i]= new_entry
+        assert(feature_len == len(new_entry))
+    return data_out
+
 
 def mean_haversine_dist (predictions, ground_truth):
     n_entries = predictions.shape[0]
