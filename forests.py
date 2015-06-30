@@ -315,6 +315,53 @@ def train(options):
             log_time += (numpy.log(t1+1) - numpy.log(t2+1))**2
         print "Mean haversine distance: %f, RMSLE=%f" % (dist/n_test_entries, numpy.sqrt(log_time/n_test_entries))
 
+
+def train2(options):
+    print "loading data..."
+    n_entries = options.n_train
+    n_estimators = options.n_estimators
+    directory = options.dir
+    
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    data,target,ids = myutils.load_data_dense(filename=options.input_train,
+                                              max_entries = n_entries,
+                                              max_coordinates=500,
+                                              skip_records=0,
+                                              total_records=-1)
+    n_entries = data.shape[0]
+
+    if CV_TEST_SET:
+        data_made,ground_truth,ids_test = myutils.make_test_data_cv_alt(data,
+                                                                    target,
+                                                                    ids,
+                                                                    n_entries=n_entries)
+    else:
+        data_made,ground_truth,ids_test = myutils.make_test_data_dense(data,
+                                                                       target,
+                                                                       ids,
+                                                                       n_entries=n_entries,
+                                                                       randomize = False)
+    # how many test entries did we generate?
+    n_test_entries = data_made.shape[0]
+    
+    # split test set
+    print "splitting data into training/test sets..."
+    ratio_test_entries = 0.05
+    data_train,data_test,target_train,target_test = train_test_split(data_made,
+                                                                     ground_truth,
+                                                                     test_size=ratio_test_entries)
+    
+    # now train
+    model_rf = sklearn.ensemble.RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, oob_score=False)
+    model_rf.fit(data_train,target_train)
+    
+    # now test
+    predictions = model_rf.predict(data_test)
+    print "average Haversine distance: %f" % (myutils.mean_haversine_dist(predictions, target_test))
+
+
 def hypertune(options):
     n_coordinates = options.n_coordinates
     assert n_coordinates != 0
@@ -901,7 +948,7 @@ def main():
     (options, args) = parser.parse_args()
 
     if options.train:
-        train(options)
+        train2(options)
     elif options.predict:
         predict(options)
     elif options.gen_commands:

@@ -453,6 +453,41 @@ def make_test_data_cv(data, target, ids, n_entries=100):
     
     return test_data[:n_found_entries],ground_truth[:n_found_entries],test_ids[:n_found_entries]
 
+
+def make_test_data_cv_alt(data, target, ids, n_entries=100):
+    data_len = data.shape[0]
+    max_features = get_n_features(2) # two coordinates
+    if n_entries>data_len:
+        n_entries = data_len
+    ground_truth=numpy.empty([n_entries,TARGET_LEN])
+    test_data = numpy.zeros([n_entries, max_features])
+    test_ids = [""] * n_entries
+    n_found_entries = 0
+    for i in xrange(data_len):
+        entry = data[i]
+        n_coordinates = get_n_coordinates(entry)
+        hour_start = entry[0]/60.
+        assert(hour_start >= 0 and hour_start <24)
+        n_snapshot_coordinates = is_cv_match(hour_start, n_coordinates)
+        if n_snapshot_coordinates>0:
+            n_features_in = get_n_features(n_snapshot_coordinates)
+            n_features_out = get_n_features(2)
+            test_data[n_found_entries,:n_features_out-2] = entry[0:n_features_out-2]
+            test_data[n_found_entries,n_features_out-2:n_features_out]= entry[n_features_in-2:n_features_in]
+            ground_truth[n_found_entries] = target[i]
+            test_ids[n_found_entries] = ids[i]
+            n_found_entries += 1
+    print "found %d entries for CV / %d total entries" % (n_found_entries,data_len)
+    
+    #f = open('cvset.txt','w')
+    #f.write("\"TRIP_ID\",\"POLYLINE_LENGTH\"\n")
+    #for i in xrange(n_found_entries):
+    #    f.write("\"%s\",\"%d\"\n" % (test_ids[i], get_n_coordinates(test_data[i])) )
+    #f.close()
+    
+    return test_data[:n_found_entries],ground_truth[:n_found_entries],test_ids[:n_found_entries]
+
+
 def make_2nd_step_features(data, predictions):
     feature_len = 13
     data_len = data.shape[0]
