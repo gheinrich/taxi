@@ -18,7 +18,7 @@ import math
 
 MAX_DIST = 1e6
 
-MAKE_TEST_SET = True
+MAKE_TEST_SET = False
 VISUALIZE = False
 SAVEFIGS = False
 DEFAULT_N_TEST_ENTRIES = 150000
@@ -390,6 +390,7 @@ def predict2(options):
                                                                            ids,
                                                                            n_entries=n_test_entries,
                                                                            randomize = False)
+        del data
     else:
         data_test,dummy_target,ids_test = myutils.load_data_dense(filename='../data/test.csv',
                                                   max_entries = 320,
@@ -401,7 +402,7 @@ def predict2(options):
     print "making alternative features"
     data_alt = myutils.make_alt_features(data_test,randomize=False)
 
-    del data
+
     del data_test
 
 
