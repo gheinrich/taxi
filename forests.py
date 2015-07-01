@@ -76,7 +76,7 @@ def fix_predictions(data, predictions,ground_truth=None, findRadii=False, findAn
 
     if findRadii:
         new_predictions = numpy.copy(predictions)
-        
+
         PoIs_in = numpy.array([[-8.6700702383 , 41.2372374113 , 57551 ,  3.9853980226],
                                [-8.6392450734 , 41.2352520798 , 1123  ,  0.8015774616],
                                [-8.5853810611 , 41.1489010799 , 41497 ,  0.6673817203],
@@ -92,9 +92,9 @@ def fix_predictions(data, predictions,ground_truth=None, findRadii=False, findAn
                                [-8.6912356773 , 41.1948618792 , 849   ,  0.3431452011],
                                [-8.5838467866 , 41.1640426139 , 7556  ,  0.3216473446],
                                [-8.688404     , 41.167548     , 1836  ,  0.3154678223 ]])
-        
+
         PoIs_sorted = PoIs_in[PoIs_in[:,2].argsort()]
-        
+
         PoIs = []
         assert (ground_truth is not None)
         for poi in PoIs_sorted:
@@ -120,7 +120,7 @@ def fix_predictions(data, predictions,ground_truth=None, findRadii=False, findAn
             PoIs.append([poi[0], poi[1], best_radius])
             print "PoIs %s: best radius=%f (diff=%f)" % (str(poi[:2]), best_radius, best_diff/n_entries)
         print "PoIs=%s" % str(PoIs)
-        
+
     else:
         PoIs = [[ -8.691204, 41.19495, 0.102041],
                 [ -8.592004, 41.10555, 0.000000],
@@ -137,10 +137,10 @@ def fix_predictions(data, predictions,ground_truth=None, findRadii=False, findAn
                 [ -8.654404, 41.18175, 0.408163],
                 [ -8.585404, 41.14895, 0.714286],
                 [ -8.670004, 41.23735, 3.163265]]
-        
+
     n_points = 0
     total_diff = 0
-    for poi in PoIs:          
+    for poi in PoIs:
         radius = poi[2]
         for i in xrange(n_entries):
             if myutils.HaversineDistance(predictions[i], poi)<radius:
@@ -183,7 +183,7 @@ def available_models(options, model_sizes):
             avail.append(size)
     print "model list: %s" % str(avail)
     return avail
-    
+
 def get_model_id(model_sizes, n_coordinates):
     model = 0
     for j in xrange(len(model_sizes)):
@@ -223,7 +223,7 @@ def train(options):
     n_entries = options.n_train
     n_estimators = options.n_estimators
     directory = options.dir
-    
+
     if not os.path.exists(directory):
         os.makedirs(directory)
 
@@ -238,7 +238,7 @@ def train(options):
                                                                      target,
                                                                      test_size=ratio_test_entries)
     n_test_entries = data_test.shape[0]
-    
+
 
     if not options.noRF:
         print "building RF model with %d coordinates ..." % n_coordinates
@@ -261,7 +261,7 @@ def train(options):
         filename = "%s/model_%d_%d.pkl" % (directory, n_entries, n_coordinates)
         print "saving model into %s..." % filename
         joblib.dump(model_rf, filename)
-    
+
     if options.GBRT:
         print "building longitute GBRT model with %d coordinates..." % n_coordinates
         n_gbrt = options.n_gbrt_estimators
@@ -270,21 +270,21 @@ def train(options):
         filename = "%s/model_gbrt_lon_%d_%d.pkl" % (directory, n_entries, n_coordinates)
         print "saving model into %s..." % filename
         joblib.dump(model_lon, filename)
-        
+
         print "building latitude GBRT model with %d coordinates..." % n_coordinates
         model_lat = sklearn.ensemble.GradientBoostingRegressor(max_leaf_nodes = n_entries/10, n_estimators=n_gbrt)
         model_lat.fit(data_train,target_train[:,1])
         filename = "%s/model_gbrt_lat_%d_%d.pkl" % (directory, n_entries, n_coordinates)
         print "saving model into %s..." % filename
         joblib.dump(model_lat, filename)
-        
+
         print "building time GBRT model with %d coordinates..." % n_coordinates
         model_t = sklearn.ensemble.GradientBoostingRegressor(max_leaf_nodes = n_entries/10, n_estimators=n_gbrt)
         model_t.fit(data_train,target_train[:,2])
         filename = "%s/model_gbrt_t_%d_%d.pkl" % (directory, n_entries, n_coordinates)
         print "saving model into %s..." % filename
         joblib.dump(model_t, filename)
-        
+
         print "computing GBRT predictions..."
         predictions_gbrt = numpy.zeros([n_test_entries, myutils.TARGET_LEN])
         predictions_gbrt[:,0] = model_lon.predict(data_test)
@@ -321,7 +321,7 @@ def train2(options):
     n_entries = options.n_train
     n_estimators = options.n_estimators
     directory = options.dir
-    
+
     if not os.path.exists(directory):
         os.makedirs(directory)
 
@@ -332,19 +332,23 @@ def train2(options):
                                               total_records=-1)
     n_entries = data.shape[0]
 
+    print "make alternative features..."
     data_made = myutils.make_alt_features(data,randomize=True)
     ground_truth = target
 
+    #
+    del data
+
     # how many test entries did we generate?
     n_test_entries = data_made.shape[0]
-    
+
     # split test set
     print "splitting data into training/test sets..."
     ratio_test_entries = 0.05
     data_train,data_test,target_train,target_test = train_test_split(data_made,
                                                                      ground_truth,
                                                                      test_size=ratio_test_entries)
-    
+
     # now train
     model_rf = sklearn.ensemble.RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, oob_score=False)
     model_rf.fit(data_train,target_train)
@@ -352,12 +356,18 @@ def train2(options):
     filename = "%s/model_alt.pkl" % (directory)
     print "saving model into %s..." % filename
     joblib.dump(model_rf, filename)
-    
+
     # now test
     predictions = model_rf.predict(data_test)
     print "average Haversine distance: %f" % (myutils.mean_haversine_dist(predictions, target_test))
 
 def predict2(options):
+    directory = options.dir
+
+    filename = "%s/model_alt.pkl" % (directory)
+    print "Opening alt model %s" % filename
+    model = joblib.load(filename,mmap_mode='c')
+
     print "loading test data..."
     if MAKE_TEST_SET:
         n_test_entries = DEFAULT_N_TEST_ENTRIES
@@ -387,13 +397,14 @@ def predict2(options):
 
     n_test_entries = data_test.shape[0]
 
-    
+
     print "making alternative features"
     data_alt = myutils.make_alt_features(data_test,randomize=False)
 
-    filename = "%s/model_alt.pkl" % (directory)
-    print "Opening GBRT model %s" % filename
-    model = joblib.load(filename)
+    del data
+    del data_test
+
+
 
     print "predicting %d entries..." % n_test_entries
     predictions = model.predict(data_alt)
@@ -401,7 +412,7 @@ def predict2(options):
     if MAKE_TEST_SET:
         print "Average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions, ground_truth),
                                          myutils.RMSLE(predictions, ground_truth) )
-        
+
     myutils.save_predictions(predictions,
                              ids_test,
                              dest_filename='out-destination.csv',
@@ -454,8 +465,8 @@ def predict(options):
                        134, 137, 138, 152, 155, 157, 163, 164, 192, 215, 220, 225, 238,
                        267, 327, 361, 369, 387, 400]
     #model_sizes = [1, 51, 107]
-    
-    
+
+
     model_sizes = available_models(options, all_model_sizes)
     # we must have a model for the shortest trips
     assert (1 in model_sizes)
@@ -496,7 +507,7 @@ def predict(options):
     predictions = numpy.zeros([n_test_entries,myutils.TARGET_LEN])
     visu = myutils.VisualizeTrip()
     for model_size in model_sizes:
-        
+
         entry_indices = []
         for i in xrange(n_test_entries):
             n_coordinates = myutils.get_n_coordinates(data_test[i])
@@ -507,7 +518,7 @@ def predict(options):
                 entry_indices.append(i)
 
         if len(entry_indices)>0:
-            
+
             # build input data
             n_features = myutils.get_n_features(model_size)
 
@@ -515,9 +526,9 @@ def predict(options):
             X = numpy.zeros([len(entry_indices),n_features])
             for idx,val in enumerate(entry_indices):
                 X[idx] = data_test[val,0:n_features]
-                
+
             # open model and predict
-            fname = get_model_filename(options, model_size)                
+            fname = get_model_filename(options, model_size)
             if options.GBRT:
                 print "Opening GBRT model %s" % fname[0]
                 model_lon = joblib.load(fname[0])
@@ -525,9 +536,9 @@ def predict(options):
                 model_lat = joblib.load(fname[1])
                 print "Opening GBRT model %s" % fname[2]
                 model_t = joblib.load(fname[2])
-                
+
                 Y = numpy.zeros([len(entry_indices),myutils.TARGET_LEN])
-                
+
                 Y[:,0] = model_lon.predict(X)
                 Y[:,1] = model_lat.predict(X)
                 Y[:,2] = model_t.predict(X)
@@ -536,7 +547,7 @@ def predict(options):
                 model = joblib.load(fname[0])
                 # predict all test samples for this model
                 Y = model.predict(X)
-                
+
             for idx,val in enumerate(entry_indices):
                 predictions[val,0:2] = Y[idx,0:2]
                 if Y[idx,2]<=0:
@@ -590,7 +601,7 @@ def predict(options):
     if MAKE_TEST_SET:
         print "Average dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions, ground_truth),
                                          myutils.RMSLE(predictions, ground_truth) )
-        
+
     myutils.save_predictions(predictions,
                              ids_test,
                              dest_filename='out-destination.csv',
@@ -634,12 +645,12 @@ def gen_commands(options):
         gbrt = "--GBRT --ngbrtestimators=%d" % options.n_gbrt_estimators
     else:
         gbrt = ""
-    
+
     if options.noRF:
         norf = "--noRF"
     else:
         norf = ""
-        
+
     for size in size_list:
         print "python forests.py --train --dir %s -c %d -n %d -e %d %s %s " % (options.dir,
                                                                         size,
@@ -738,17 +749,17 @@ def train_step2(options):
     #model_ransac = sklearn.linear_model.RANSACRegressor(sklearn.linear_model.LinearRegression())
     #n_subset = int(n_test_entries/2)
     #predictions_ransac = numpy.zeros([n_test_entries-n_subset,myutils.TARGET_LEN])
-    
+
     #print predictions[:n_subset,2].shape
     #print ground_truth[:n_subset,2].shape
-    
+
     #model_ransac.fit(predictions[:n_subset,2:3], ground_truth[:n_subset,2])
     #predictions_ransac[:,2:3] = model_ransac.predict(predictions[n_subset:,2:3])
     #print "coefs: %s intercept:%s" % (str( model_ransac.estimator_.coef_), str(model_ransac.estimator_.intercept_) )
     #print "After RANSAC: dist=%f, RMSLE=%f" % (myutils.mean_haversine_dist(predictions_ransac, ground_truth[n_subset:]),
                                          #myutils.RMSLE(predictions_ransac, ground_truth[n_subset:]) )
-    
-    
+
+
     fix_predictions(data_made, predictions, ground_truth, findRadii=False)
 
     #print "building new feature vectors..."
@@ -855,7 +866,7 @@ def cluster(options):
 def merge(options):
     files = options.merge.split(',')
     assert len(files)==2
-    
+
     if MAKE_TEST_SET:
         n_test_entries = DEFAULT_N_TEST_ENTRIES
         n_entries = min(200000, 100 * n_test_entries)
@@ -875,16 +886,16 @@ def merge(options):
                                                                         target,
                                                                         ids,
                                                                         n_entries=n_test_entries,
-                                                                        randomize = False)  
+                                                                        randomize = False)
         # how many test entries did we generate?
         n_test_entries = data_made.shape[0]
     else:
         n_test_entries = 320
         assert options.merge_ratio != ""
         merge_ratio = eval(options.merge_ratio)
-    
+
     print "Merge ratio = %f" % merge_ratio
-    
+
     if "dest" in files[0]:
         predictions1, prediction1_ids = myutils.load_predictions(destination_file=files[0],
                                                            n_entries = n_test_entries)
@@ -898,15 +909,15 @@ def merge(options):
         predictions2, prediction2_ids = myutils.load_predictions(destination_file=None,
                                                                  time_file=files[1],
                                                          n_entries = n_test_entries)
-        
+
     assert(cmp(prediction1_ids, prediction2_ids)==0)
-    
-    if MAKE_TEST_SET:    
+
+    if MAKE_TEST_SET:
         print "Prediction #1: dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions1, ground_truth),
                                                 myutils.RMSLE(predictions1, ground_truth))
         print "Prediction #2: dist=%f RMSLE=%f" % (myutils.mean_haversine_dist(predictions2, ground_truth),
                                                 myutils.RMSLE(predictions2, ground_truth))
-        
+
         scores = []
         ratios, step = numpy.linspace(0,1,51,retstep=True)
         for ratio in ratios:
@@ -917,9 +928,9 @@ def merge(options):
             print "[ratio=%f] Merged Prediction: dist=%f RMSLE=%f" % (ratio, dist, RMSLE)
         merge_ratio = numpy.argmin(scores)*step
         print "Best ratio = %f" % (merge_ratio)
-        
+
     merged_prediction = (merge_ratio * predictions1 + (1-merge_ratio) * predictions2)
-        
+
     myutils.save_predictions(merged_prediction,
                              prediction1_ids,
                              dest_filename='out-destination-merged.csv',
@@ -995,7 +1006,7 @@ def main():
     if options.train:
         train2(options)
     elif options.predict:
-        predict(options)
+        predict2(options)
     elif options.gen_commands:
         gen_commands(options)
     elif options.stats:
@@ -1019,4 +1030,5 @@ if __name__ == '__main__':
     t0 = time.time()
     main()
     print "Elapsed time: %f" % (time.time() - t0)
+
 
